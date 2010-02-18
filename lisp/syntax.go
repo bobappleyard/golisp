@@ -1,160 +1,145 @@
 package lisp
 
 import (
-	. "peg";
+	"io"
+	"os"
+	"fmt"
+	"strings"
+	"strconv"
+	"./lexer"
+	"./peg"
 )
 
-type syntax struct {
-	host *Interpreter;
-	expr, hash *Extensible;
-	root, ignore Expr;
+const (
+	_LSTART peg.Terminal = iota
+	_LEND
+	_LSTART2
+	_LEND2
+	_INT
+	_FLOAT
+	_STR
+	_COMMENT
+	_WS
+	_SYMBOL
+	_HASH
+)
+
+var lex = lexer.RegexSet {
+	int(_LSTART): 		"\\(",
+	int(_LEND):			"\\)",
+	int(_LSTART2): 		"\\[",
+	int(_LEND2):		"\\]",
+	int(_INT):			"\\d+",
+	int(_FLOAT):		"\\d+(\\.\\d+)?",
+	int(_STR):			"\"([^\"]|\\.)*\"",
+	int(_SYMBOL):		"[^#\\(\\)\"\n\r\t ]+",
+	int(_HASH):			"#\\a",
+	int(_COMMENT):		";[^\n]*",
+	int(_WS):			"\\s+",
 }
 
-func (self *syntax) Read(in Value) Value {
-	i, ok := in.(Input);
-	if ok {
-		pos, val := Parse(self.root, i);
-		if pos.Failed() {
-			return Error("failed to parse");
-		}
-		return val;
+func parseList(x interface{}) interface{} {
+	ls := x.([]interface{})
+	var res Any = EMPTY_LIST
+	for i := len(ls) - 1; i >= 0; i-- {
+		x := ls[i]
+		if Failed(x) { return x }
+		res = Cons(x, res)
 	}
-	return TypeError(in);
+	return res
 }
 
-func (self *syntax) AddReadSyntax(e Expr) {
-	self.expr.Add(e);
-}
-
-func (self *syntax) AddHashSyntax(e Expr) {
-	self.hash.Add(e);
-}
-
-func (self *syntax) s_root() {
-	// ignore a load of stuff first
-	self.ignore = Or {
-		And { Char(';'), RepeatUntil(Any, LineEnd), LineEnd },
-		Whitespace
-	};
-	// if all else fails to parse, have a go as a symbol
-	sym := Bind(Merge(Multi(Select(And {
-		Prevent(Or { 
-			Char(')'), 
-			Char(']'),
-			Whitespace, 
-			EOF 
+var syntax = func() peg.Expr {
+	expr := peg.Extensible()
+	expr.Add(peg.Or {
+		peg.Bind(_INT, func(x interface{}) interface{} { 
+			s, ok := x.(string)
+			if !ok { return TypeError(x) }
+			res, err := strconv.Atoi(s)
+			if err != nil { return SystemError(err) }
+			return res
 		}),
-		Any
-	}, 1))), func(v Data) Data {
-		s := v.(string);
-		if s[len(s) -1] == ':' {
-			return self.host.Keyword(s);
-		}
-		return self.host.Symbol(s);
-	});
-	// setup the root to take all this into account
-	self.root = Select(And {
-		Repeat(self.ignore),
-		Or {
-			self.expr,
-			sym,
-			Bind(EOF, func(v Data) Data { return EOF_OBJECT; })
-		}
-	}, 1);
-}
-
-func (self *syntax) s_hash() {
-	self.hash = NewExtensible();
-	self.AddReadSyntax(Select(And {
-		Char('#'),
-		self.hash
-	}, 1));	
-}
-
-func (self *syntax) s_atoms() {
-	// characters
-	self.AddHashSyntax(Bind(And { Char(`\`), Any } func(v Data) Data {
-		return self.host.Char(v.([]Data)[1].(int));
-	});
-	// strings
-	qu := Char('"');
-	self.AddReadSyntax(Select(And {
-		qu,
-		Merge(Repeat(Or { 
-			Select(And { Char('\\'), Any }, 1),
-			RepeatUntil(Any, qu)
-		})),
-		qu
-	}, 1));
-	// numbers
-	digits := Merge(Multi(Digit));
-	self.AddReadSyntax(Bind(And {
-		digits,
-		Option(And {
-			Or { Char('.'), Char('/') },
-			digits
-		})
-	}, func(v Data) Data {
-		vs := v.([]Data);
-		n := vs[0].(string);
-		fp := vs[1].([]Data);
-		if len(fp) != 0 {
-			fp = fp[0].([]Data);
-			d := fp[1].(string);
-			if fp[0].(string) == "." {
-				return self.ParseNumber(n + "." + d);
+		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
+			s, ok := x.(string)
+			if !ok { return TypeError(x) }
+			res, err := strconv.Atof(s)
+			if err != nil { return SystemError(err) }
+			return res
+		}),
+		peg.Bind(_STR, func(x interface{}) interface{} { 
+			s, err := strconv.Unquote(x.(string))
+			if err != nil { return SystemError(nil) }
+			return s
+		}),
+		peg.Bind(peg.Select(peg.And { _LSTART, peg.Repeat(expr), _LEND }, 1), parseList),
+		peg.Bind(peg.Select(peg.And { _LSTART2, peg.Repeat(expr), _LEND2 }, 1), parseList),
+		peg.Bind(_SYMBOL, func(x interface{}) interface{} { return Symbol(x.(string)) }),
+		peg.Bind(_HASH, func(x interface{}) interface{} {
+			s := x.(string)
+			switch s[1] {
+				case 'v': return nil
+				case 'f': return false
+				case 't': return true
 			}
-			return self.Rational(self.ParseNumber(n), self.ParseNumber(d));
-		}
-		return self.ParseNumber(n);
-	}));
-}
-
-func (self *syntax) s_colls() {
-	// lists
-	list := Bind(And {
-		Repeat(self.root),
-		Option(And {
-			self.root,
-			Multi(self.ignore),
-			Char('.'),
-			self.ignore,
-			self.root
+			return SyntaxError("unknown constant: " + string(s[1]))
 		}),
-	}, func(v Data) Data {
-		vs := v.([]Data);
-		is := vs[0].([]Data);
-		tl := vs[1].([]Data);
-		var p Value = EMPTY_LIST;
-		if len(tl) != 0 {
-			tl = tl[0].([]Data);
-			p = self.Cons(tl[0], tl[3]);
-		}
-		for i := len(is); i >= 0; i-- {
-			p = self.Cons(is[i], p);
-		}
-		return p;
-	});
-	self.AddReadSyntax(Select(Or {
-		And { Char('('), list, Char(')') },
-		And { Char('['), list, Char(']') } 
-	}, 1));
-	// vectors
-	self.AddHashSyntax(Select(And { Char('('), Repeat(self.root), Char(')') }, 1));
+	})
+	return expr //peg.Select(peg.And { peg.Repeat(_WS), expr, peg.Eof }, 1)
+}()
+
+func ReadLine(port Any) (string, os.Error) {
+	pt, ok := port.(io.Reader)
+	if !ok { return "", TypeError(pt) }
+	buf := []byte{0}
+	res := ""
+	for {
+		_, err := pt.Read(buf)
+		if err != nil { return "", SystemError(err) }
+		if buf[0] == '\n' { break }
+		res += string(buf)
+	}
+	return res, nil
 }
 
-
-//~ func (self *syntax) s_root() {
-
-
-func (self *syntax) initSyntax(h *Interpreter) {
-	self.expr = NewExtensible();
-	self.host = h;
-	self.s_root();
-	self.s_hash();
-	self.s_atoms();
-	self.s_colls();
+func Read(port Any) Any {
+	s, err := ReadLine(port)
+	if err != nil { return err }
+	return ReadString(s)
 }
 
+func ReadString(s string) Any {
+	r := strings.NewReader(s)
+	l := lexer.New()
+	l.Regexes(nil, lex)
+	src := peg.NewLex(r, l, func(id int) bool { return id != int(_WS) })
+	m, d := syntax.Match(src)
+	if m.Failed() { return Throw(Symbol("syntax-error"), "failed to parse") }
+	return d	
+}
 
+func toWrite(obj Any, def string) string {
+	if obj == nil { return "#v" }
+	if b, ok := obj.(bool); ok {
+		if b {
+			return "#t"
+		} else {
+			return "#f"
+		}
+	}
+	return fmt.Sprintf(def, obj)
+}
+
+func Write(obj, port Any) Any {
+	p, ok := port.(io.Writer)
+	if !ok { return TypeError(port) }
+	io.WriteString(p, toWrite(obj, "%#v"))
+	return nil
+}
+
+func Display(obj, port Any) Any {
+	p, ok := port.(io.Writer)
+	if !ok { return TypeError(port) }
+	io.WriteString(p, toWrite(obj, "%v"))
+	return nil
+}
 

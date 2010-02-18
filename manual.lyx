@@ -71,12 +71,11 @@ http://www.schemers.org/
 
 \end_inset
 
- and Common Lisp, but is much smaller than both.
+, but is much more basic.
  If you squint hard enough, it's almost compliant with Scheme standards,
  but it doesn't have continuations.
- A very simple evaluation mechanism is used, based on the metacircular evaluator.
- Annotations are added by a compilation step within the evaluator to improve
- performance (mostly to make variable lookup fast).
+ A very simple evaluation mechanism is used, where the list structure is
+ interpreted directly.
 \end_layout
 
 \begin_layout Standard
@@ -85,21 +84,6 @@ Go seems like a good language for implementing interpreters for other languages
  It has enough expressiveness to easily define the basics of a Lisp system.
  In particular, the garbage collector, the mechanism for dynamic types and
  built-in maps greatly eased development.
- The work presented here is based on two previous interpreters.
- The first was a straight metacircular interpreter, the second an evaluator
- for a version of Scheme that had been transformed into continuation-passing
- style.
- The first suffered from being intolerably slow, the second from difficulty
- in debugging.
- The Golisp interpreter tries to chart a course between these two approaches,
- so as to reap the performance benefits of the latter without sacrificing
- the introspective capacity of the former.
- Variable lookup, in all cases, is fast: it is either a slice index or a
- field lookup, perhaps followed by a function call that does another field
- lookup.
- This is far in preference to a metacircular evaluator, where a tree would
- have to be parsed.
- 
 \end_layout
 
 \begin_layout Standard
@@ -122,7 +106,7 @@ The core of Golisp is based heavily on Scheme.
 s-expressions
 \emph default
 .
- There are five 
+ There are a small number of 
 \emph on
 standard forms
 \emph default
@@ -136,22 +120,19 @@ macros
 functions
 \emph default
 .
- After that, two further processing steps are applied.
- One expands 
+ The process of executing a Golisp program involves 
 \emph on
-lambda expressions
+evaluating
 \emph default
- with extra information, to facilitate later stages of 
+ a series of 
 \emph on
-evaluation
+expressions
 \emph default
-.
- The other transforms all references to 
+, and typically includes 
 \emph on
-variables
+function application
 \emph default
- into precise instructions on how to find them at run-time as well as handling
- other issues regarding variable management.
+ as the main driver of control.
 \end_layout
 
 \begin_layout Standard
@@ -159,98 +140,15 @@ All of the emphasised terms will be discussed below.
 \end_layout
 
 \begin_layout Subsection
-Differences From...
-\end_layout
-
-\begin_layout Standard
-Scheme
-\end_layout
-
-\begin_layout Itemize
-No environments.
-\end_layout
-
-\begin_layout Itemize
-No continuations (yet).
-\end_layout
-
-\begin_layout Itemize
-No hygienic macros (yet!).
-\end_layout
-
-\begin_layout Standard
-Common Lisp
-\end_layout
-
-\begin_layout Itemize
-Most of the standard library is missing.
-\end_layout
-
-\begin_layout Itemize
-Functions and variables occupy the same namespace.
-\end_layout
-
-\begin_layout Itemize
-No condition/restart system.
-\end_layout
-
-\begin_layout Subsection
-Similarities To...
-\end_layout
-
-\begin_layout Standard
-Scheme
-\end_layout
-
-\begin_layout Itemize
-Use of punctuation with intent: ! indicates side-effects, ? indicates predicates
- etc.
-\end_layout
-
-\begin_layout Itemize
-Properly tail-recursive.
-\end_layout
-
-\begin_layout Itemize
-Small language core.
-\end_layout
-
-\begin_layout Itemize
-Functional bias.
-\end_layout
-
-\begin_layout Standard
-Common Lisp
-\end_layout
-
-\begin_layout Itemize
-Macros.
-\end_layout
-
-\begin_layout Itemize
-Package system.
-\end_layout
-
-\begin_layout Itemize
-Keywords (albeit with different syntax).
-\end_layout
-
-\begin_layout Subsection
 S-Expressions
 \end_layout
 
 \begin_layout LyX-Code
-; comments (like this) are ignored
+; a comment
 \end_layout
 
 \begin_layout LyX-Code
-1 2.0 3/1 4+0i ; numbers
-\end_layout
-
-\begin_layout LyX-Code
-#
-\backslash
-h ; character
+1 2.0               ; numbers (fixnum, flonum)
 \end_layout
 
 \begin_layout LyX-Code
@@ -261,29 +159,33 @@ hello
 \begin_inset Quotes erd
 \end_inset
 
- ; string
+             ; string
 \end_layout
 
 \begin_layout LyX-Code
-hello a + 2cool4u ; symbols
+hello a + 2cool4u   ; symbols
 \end_layout
 
 \begin_layout LyX-Code
-(a b c) [d e f] ; lists
+yo:                 ; keyword
 \end_layout
 
 \begin_layout LyX-Code
-() [] ; empty lists
+(a b c) [d e f]     ; lists
+\end_layout
+
+\begin_layout LyX-Code
+() []               ; empty lists
 \end_layout
 
 \begin_layout LyX-Code
 (1 .
- 2) ; pair
+ 2)             ; pair
 \end_layout
 
 \begin_layout LyX-Code
 (1 2 .
- 3) ; improper list
+ 3)           ; improper list
 \end_layout
 
 \begin_layout Subsection
@@ -327,6 +229,34 @@ var val
 \end_layout
 
 \begin_layout LyX-Code
+(define 
+\emph on
+var val
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(define (
+\emph on
+name vars
+\emph default
+ ...) 
+\emph on
+body
+\emph default
+ ...)
+\end_layout
+
+\begin_layout LyX-Code
+(begin 
+\emph on
+body
+\emph default
+ ...)
+\end_layout
+
+\begin_layout LyX-Code
 (
 \emph on
 f args 
@@ -335,7 +265,7 @@ f args
 \end_layout
 
 \begin_layout Standard
-The five standard forms essentially define the semantics of Golisp.
+The standard forms essentially define the semantics of Golisp.
 \end_layout
 
 \begin_layout Description
@@ -355,101 +285,83 @@ set! modifies variables.
 \end_layout
 
 \begin_layout Description
-call calls functions.
+define mutates the local environment.
 \end_layout
 
-\begin_layout Subsection
-Variables
+\begin_layout Description
+begin groups expressions to be evaluated sequentially.
+\end_layout
+
+\begin_layout Description
+function
+\begin_inset space ~
+\end_inset
+
+application calls functions.
 \end_layout
 
 \begin_layout Subsubsection
-Variable Forms
+Quote
 \end_layout
 
 \begin_layout LyX-Code
-(bound 
-\emph on
-idx
-\emph default
-)
+> (quote a)
 \end_layout
 
 \begin_layout LyX-Code
-(free 
-\emph on
-idx
-\emph default
-)
+a
 \end_layout
 
 \begin_layout LyX-Code
-(global 
-\emph on
-sym
-\emph default
-)
+> 'a
 \end_layout
 
 \begin_layout LyX-Code
-(unbox 
-\emph on
-var
-\emph default
-)
-\end_layout
-
-\begin_layout Standard
-These are included for informational purposes only.
- It is not possible to use these forms in Golisp code.
- Don't worry! They don't actually look like this, and you can define your
- own things with these names, if you want.
- They are included here to help understand the rest of it.
-\end_layout
-
-\begin_layout Standard
-Golisp knows about three kinds of environment.
- There are 
-\emph on
-bound variables
-\emph default
-, those that have just been passed into a function; 
-\emph on
-free variables
-\emph default
-, those that were in scope when the function was created; and 
-\emph on
-global variables
-\emph default
-, those that are always in scope.
- This is transparent to the programmer: everything works as expected for
- a Lisper.
-\end_layout
-
-\begin_layout Standard
-e.g.
+a
 \end_layout
 
 \begin_layout LyX-Code
-(define (adder x)
+> (+ 1 2)
 \end_layout
 
 \begin_layout LyX-Code
-  (lambda (y)
+3
 \end_layout
 
 \begin_layout LyX-Code
-    (set! x (+ x y)) ; + is global, x is free, y is bound
+> '(+ 1 2)
 \end_layout
 
 \begin_layout LyX-Code
-    x))
+(+ 1 2)
 \end_layout
 
-\begin_layout Standard
-This is something to know as an implementation detail, as it underlies the
- optimisation techniques in the compiler.
- Nevertheless, that there is, for instance, a single global environment,
- is instructive.
+\begin_layout Subsubsection
+If
+\end_layout
+
+\begin_layout Subsubsection
+Lambda
+\end_layout
+
+\begin_layout Subsubsection
+Set!
+\end_layout
+
+\begin_layout Subsubsection
+Define
+\end_layout
+
+\begin_layout Subsubsection
+Begin
+\end_layout
+
+\begin_layout Subsubsection
+Function Application
+\end_layout
+
+\begin_layout LyX-Code
+
 \end_layout
 
 \begin_layout Subsection
@@ -544,148 +456,108 @@ This can be carried on indefinitely.
 \end_layout
 
 \begin_layout Subsubsection
-Lambda Expansion
+Primitives
 \end_layout
 
 \begin_layout Standard
-Lambda expansion adds annotations to lambda expressions, to ease their evaluatio
-n.
+Primitives are Golisp functions that are implemented in Go.
+ They have the following type signature.
 \end_layout
 
 \begin_layout LyX-Code
-(lambda 
-\emph on
-vars body
-\emph default
- ...)
-\end_layout
-
-\begin_layout LyX-Code
-=>
-\end_layout
-
-\begin_layout LyX-Code
-(lambda 
-\emph on
-closed boxed vars body
-\emph default
- ...)
+type Primitive func(args Any) Any
 \end_layout
 
 \begin_layout Standard
-e.g.
+They provide functionality that is either impossible or very costly to do
+ in Golisp.
+ This revolves around access to wider system resources and communication
+ with them, but also includes things like number manipulation, manipulating
+ collections, and so on.
+\end_layout
+
+\begin_layout Subsubsection
+Application
+\end_layout
+
+\begin_layout Standard
+The 
+\family typewriter
+Function
+\family default
+ interface, that all Golisp functions implement, has one method on it, 
+\family typewriter
+Apply(Any) Any
+\family default
+.
+ Calling this method will apply the function.
+ To call a function from Golisp, place it add the head of a list, with the
+ arguments forming the tail.
 \end_layout
 
 \begin_layout LyX-Code
-(lambda (a) 
+> (+ 1 2)
 \end_layout
 
 \begin_layout LyX-Code
-  (lambda (b) 
+3
 \end_layout
 
 \begin_layout LyX-Code
-    (+ a b)))
+> (+ (* 3 4) 7)
 \end_layout
 
 \begin_layout LyX-Code
-=> (lambda () () (a) 
+19
+\end_layout
+
+\begin_layout Standard
+There is also a facility for passing a list directly into the arguments
+ from Golisp.
 \end_layout
 
 \begin_layout LyX-Code
-     (lambda (a) () (b) 
+> (apply + '(1 2 3))
 \end_layout
 
 \begin_layout LyX-Code
-       (+ a b)))
+6
 \end_layout
 
 \begin_layout LyX-Code
-=> (lambda () () (a) 
+> (apply + 1 '(2 3))
 \end_layout
 
 \begin_layout LyX-Code
-     (lambda ((bound 0)) () (b)
+6
+\end_layout
+
+\begin_layout Subsection
+Environments
 \end_layout
 
 \begin_layout LyX-Code
-       ((unbox (global +)) (free 0) (bound 0))))
+> (= (local-environment) (root-environment))
 \end_layout
 
 \begin_layout LyX-Code
-(define ((adder x) y) 
+#t
 \end_layout
 
 \begin_layout LyX-Code
-  (set! x (+ x y)) x)
+> ((lambda () (= (local-environment) (root-environment))))
 \end_layout
 
 \begin_layout LyX-Code
-=> (define (adder x) 
+#f
 \end_layout
 
 \begin_layout LyX-Code
-     (lambda (y) 
+> (begin (= (local-environment) (root-environment)))
 \end_layout
 
 \begin_layout LyX-Code
-       (set! x (+ x y)) x))
-\end_layout
-
-\begin_layout LyX-Code
-=> (define adder 
-\end_layout
-
-\begin_layout LyX-Code
-     (lambda (x) 
-\end_layout
-
-\begin_layout LyX-Code
-       (lambda (y) 
-\end_layout
-
-\begin_layout LyX-Code
-         (set! x (+ x y)) x)))
-\end_layout
-
-\begin_layout LyX-Code
-=> (define adder 
-\end_layout
-
-\begin_layout LyX-Code
-     (lambda () (x) (x) 
-\end_layout
-
-\begin_layout LyX-Code
-       (lambda (x) () (y) 
-\end_layout
-
-\begin_layout LyX-Code
-         (set! x (+ x y)) x)))
-\end_layout
-
-\begin_layout LyX-Code
-=> (define adder 
-\end_layout
-
-\begin_layout LyX-Code
-     (lambda () (0) (x) 
-\end_layout
-
-\begin_layout LyX-Code
-       (lambda ((bound 0)) () (y) 
-\end_layout
-
-\begin_layout LyX-Code
-         (set! (free 0) ((unbox (global +)) (unbox (free 0)) 
-\end_layout
-
-\begin_layout LyX-Code
-                                            (bound 0))) 
-\end_layout
-
-\begin_layout LyX-Code
-         (unbox (free 0)))))
+#t
 \end_layout
 
 \begin_layout Subsection
@@ -697,57 +569,23 @@ Macros
 \end_layout
 
 \begin_layout Section
-Primitives
-\end_layout
-
-\begin_layout Standard
-Primitives are Golisp functions that are implemented in Go.
- They have the following type signature.
-\end_layout
-
-\begin_layout LyX-Code
-type Primitive func(args []Value) Value
-\end_layout
-
-\begin_layout Standard
-They provide functionality that is either impossible or very costly to do
- in Golisp.
- This revolves around access to wider system resources and communication
- with them, but also includes things like number manipulation, manipulating
- collections, and so on.
+Library
 \end_layout
 
 \begin_layout Subsection
-Maths Primitives
-\end_layout
-
-\begin_layout Standard
-Manipulating numbers, and accessing important mathematical functions, are
- the order of the day.
+Numbers
 \end_layout
 
 \begin_layout Subsection
-Character Primitives
+Strings
 \end_layout
 
 \begin_layout Standard
-These primitives primarily concern themselves with Unicode.
-\end_layout
-
-\begin_layout Subsection
-String Primitives
-\end_layout
-
-\begin_layout Standard
-Selecting from, concatenating, searching strings.
- All good fun.
- Like in Go, strings are UTF-8, characters are Unicode code points.
-\end_layout
-
-\begin_layout Standard
-A good trick is to build a list of strings, then (apply string-append list-of-st
-rings).
- This is equivalent to string builder type things.
+Selecting from, concatenating, searching and converting strings.
+ Golisp strings are Go strings underneath, and so behave in similar ways:
+ UTF8 encoded, immutable, and so on.
+ Converting a string into a vector or list transforms the string into a
+ sequence of Unicode codepoints represented as fixnums.
 \end_layout
 
 \begin_layout LyX-Code
@@ -769,9 +607,9 @@ s
 \begin_layout LyX-Code
 (string-append 
 \emph on
-s
+a b
 \emph default
- ...)
+)
 \end_layout
 
 \begin_layout LyX-Code
@@ -790,13 +628,48 @@ f init s
 )
 \end_layout
 
+\begin_layout LyX-Code
+(string->list 
+\emph on
+s
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(string->vector 
+\emph on
+s
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(string->symbol 
+\emph on
+s
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(string->number 
+\emph on
+s
+\emph default
+)
+\end_layout
+
 \begin_layout Subsection
-List Primitives
+Lists
 \end_layout
 
 \begin_layout Standard
-Lists are important to any Lisp implementation.
- 
+Lists in Golisp are immutable.
+\end_layout
+
+\begin_layout LyX-Code
+; primitives
 \end_layout
 
 \begin_layout LyX-Code
@@ -824,31 +697,244 @@ p
 \end_layout
 
 \begin_layout LyX-Code
-(set-car! 
+(pair? 
 \emph on
-p x
+p
 \emph default
 )
 \end_layout
 
 \begin_layout LyX-Code
-(set-cdr! 
+; library functions
+\end_layout
+
+\begin_layout LyX-Code
+(caar 
 \emph on
-p x
+p
+\emph default
+) ...
+ (cddddr 
+\emph on
+p
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list 
+\emph on
+xs
+\emph default
+ ...)
+\end_layout
+
+\begin_layout LyX-Code
+(null? 
+\emph on
+x
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(length 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(reverse 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(append 
+\emph on
+ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(zip 
+\emph on
+ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(map 
+\emph on
+f ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(for-each 
+\emph on
+f ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(filter 
+\emph on
+f l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(fold 
+\emph on
+f i l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list? 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(proper-list? 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(improper-list? 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(circular-list? 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list-ref 
+\emph on
+l idx
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list-tail
+\emph on
+ l idx
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list-head 
+\emph on
+l idx
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list->vector 
+\emph on
+l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list->string 
+\emph on
+l
 \emph default
 )
 \end_layout
 
 \begin_layout Subsection
-Vector Primitives
+Vectors
 \end_layout
 
 \begin_layout Standard
 Vectors are equivalent to Go's arrays or slices.
 \end_layout
 
-\begin_layout Subsection
-Map Primitives
+\begin_layout LyX-Code
+(vector 
+\emph on
+xs
+\emph default
+ ...)
+\end_layout
+
+\begin_layout LyX-Code
+(make-vector 
+\emph on
+size fill
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(vector-ref 
+\emph on
+v idx
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(vector-set! 
+\emph on
+v idx val
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(vector-slice 
+\emph on
+v from to
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(vector->list 
+\emph on
+v
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(vector->string 
+\emph on
+v
+\emph default
+)
 \end_layout
 
 \begin_layout Subsection
@@ -869,13 +955,95 @@ The Interpreter
 \end_layout
 
 \begin_layout Standard
-The Golisp interpreter is a Go object.
- Most of the mechanisms for interacting with a Golisp system involve communicati
+The Golisp interpreter is a Go type.
+ Many of the mechanisms for interacting with a Golisp system involve communicati
 ng with this object.
 \end_layout
 
 \begin_layout Subsection
-Interpreter API
+Contexts and Environments
+\end_layout
+
+\begin_layout LyX-Code
+type Any interface{}
+\end_layout
+
+\begin_layout LyX-Code
+
+\end_layout
+
+\begin_layout LyX-Code
+type Symbol string
+\end_layout
+
+\begin_layout LyX-Code
+
+\end_layout
+
+\begin_layout LyX-Code
+type Environment map[Symbol] Any 
+\end_layout
+
+\begin_layout LyX-Code
+
+\end_layout
+
+\begin_layout LyX-Code
+type Context struct {
+\end_layout
+
+\begin_layout LyX-Code
+	env Environment
+\end_layout
+
+\begin_layout LyX-Code
+	parent *Context
+\end_layout
+
+\begin_layout LyX-Code
+}
+\end_layout
+
+\begin_layout Standard
+An environment provides a mapping from Symbols to arbitrary objects.
+ A context strings environments together and co-ordinates evaluation.
+ Therefore most of the more interesting methods are on the Context type:
+\end_layout
+
+\begin_layout LyX-Code
+func NewContext(parent *Context) *Context
+\end_layout
+
+\begin_layout LyX-Code
+func New() *Context
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Eval(x Any) Any
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) EvalString(x string) Any
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Expand(x Any) Any
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Bind(env Environment)
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Lookup(x string) Any
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Load(path string) os.Error
+\end_layout
+
+\begin_layout LyX-Code
+func (self *Context) Repl(in io.Reader, out io.Writer)
 \end_layout
 
 \begin_layout Section
@@ -885,29 +1053,26 @@ Errors
 \begin_layout Standard
 Go raised some consternation from some quarters when it was revealed because
  it lacked exceptions.
- It may surprise them that the author of this document is somewhat embarassed
- to reveal that Golisp currently handles errors in much the same way as
- exceptions.
+ It may surprise those who made such statements that the author of this
+ document is somewhat embarassed to reveal that Golisp currently handles
+ errors in much the same way as exceptions.
  This is because a much more powerful notion, one that encompasses exceptions,
  breaks, continues and immediate returns, and whatever else the clever hacker
- can imagine, in Scheme.
+ can imagine, exists in Scheme.
 \end_layout
 
 \begin_layout Standard
 Errors are objects that are treated specially by the runtime.
  All of the internals of the interpreter will ferry an error object up the
  call chain.
- Primitives must handle error objects explicitly.
+ Primitives must handle error objects explicitly, in much the same way as
+ errors in Go are normally handled.
  Failed(x) will return true if x is an error object.
  The obvious thing to do with error objects is to return them immediately;
- Golisp provides mechanisms for handling errors.
- This is your basic try-catch exception deal.
- Full continuations may appear at some point, until then, this special case
+ Golisp provides mechanisms for handling errors within the language.
+ This is your basic try-catch mechanism.
+ Full continuations may appear at some point; until then, this special case
  is most pressing.
-\end_layout
-
-\begin_layout Standard
-Golisp provides functions for emitting and receiving errors.
 \end_layout
 
 \begin_layout Subsection
@@ -915,9 +1080,9 @@ Emission
 \end_layout
 
 \begin_layout LyX-Code
-(signal-error 
+(throw 
 \emph on
-type
+kind
 \emph default
  
 \emph on
@@ -942,14 +1107,6 @@ x
 )
 \end_layout
 
-\begin_layout LyX-Code
-(argument-error 
-\emph on
-args
-\emph default
-)
-\end_layout
-
 \begin_layout Standard
 Signal different kinds of error.
 \end_layout
@@ -959,7 +1116,7 @@ Reception
 \end_layout
 
 \begin_layout LyX-Code
-(split 
+(catch 
 \emph on
 thk hnd
 \emph default
@@ -985,8 +1142,6 @@ root
  abnormally.
  The REPL installs a handler that simply prints the message and carries
  on.
- Fairly primitive, I know.
- I'm working on it.
 \end_layout
 
 \begin_layout LyX-Code
@@ -994,13 +1149,11 @@ root
 \end_layout
 
 \begin_layout LyX-Code
-
-\emph on
 error: division by zero
 \end_layout
 
 \begin_layout LyX-Code
-> (split (lambda () (/ 1 0)) (lambda (type msg) msg))
+> (catch (lambda () (/ 1 0)) (lambda (kind msg) msg))
 \end_layout
 
 \begin_layout LyX-Code
@@ -1015,442 +1168,15 @@ division by zero
 \end_layout
 
 \begin_layout LyX-Code
-> (split (lambda () (/ 1 0)) (lambda (type msg) 
-\begin_inset Quotes eld
-\end_inset
-
-wooo
-\begin_inset Quotes erd
-\end_inset
-
-))
+> (catch (lambda () (/ 1 0)) (lambda (kind msg) (throw kind msg)))
 \end_layout
 
 \begin_layout LyX-Code
-\begin_inset Quotes eld
-\end_inset
-
-wooo
-\begin_inset Quotes erd
-\end_inset
-
-
-\end_layout
-
-\begin_layout LyX-Code
-> (split (lambda () (/ 1 0)) (lambda (type msg) (signal-error type msg)))
-\end_layout
-
-\begin_layout LyX-Code
-
-\emph on
 error: division by zero
 \end_layout
 
 \begin_layout LyX-Code
-
-\end_layout
-
-\begin_layout Section
-Packages and Symbols
-\end_layout
-
-\begin_layout Standard
-There is a single global environment in Golisp.
- This is partitioned into logical spaces by packages.
- There are two ways of looking at packages: bliss in (relative) ignorance,
- and cold hard reality.
- It is not possible to refer to packages directly, but an API for managing
- them is provided.
-\end_layout
-
-\begin_layout Subsection
-Symbols
-\end_layout
-
-\begin_layout Standard
-Symbols in Golisp roughly corespond to identifiers in other languages.
- They are first-class values because Golisp code is first-class, and identifiers
- are an important part of any piece of code.
- Symbols can also be used instead of enumerated types, although keywords
- are probably better for this.
- A symbol will evaluate to whatever variable it refers to.
- Quoting a symbol gives access to the symbol object upon evaluation.
-\end_layout
-
-\begin_layout LyX-Code
-> (define a 1)
-\end_layout
-
-\begin_layout LyX-Code
-> a
-\end_layout
-
-\begin_layout LyX-Code
-1
-\end_layout
-
-\begin_layout LyX-Code
-> 'a
-\end_layout
-
-\begin_layout LyX-Code
-a
-\end_layout
-
-\begin_layout LyX-Code
-> (symbol->string 'a)
-\end_layout
-
-\begin_layout LyX-Code
-\begin_inset Quotes eld
-\end_inset
-
-a
-\begin_inset Quotes erd
-\end_inset
-
-
-\end_layout
-
-\begin_layout LyX-Code
-> (eval 'a)
-\end_layout
-
-\begin_layout LyX-Code
-1
-\end_layout
-
-\begin_layout Subsection
-Symbol API
-\end_layout
-
-\begin_layout LyX-Code
-(symbol->string s)
-\end_layout
-
-\begin_layout LyX-Code
-(string->symbol s)
-\end_layout
-
-\begin_layout LyX-Code
-(unqualified s)
-\end_layout
-
-\begin_layout Subsection
-Package API
-\end_layout
-
-\begin_layout LyX-Code
-(define-package 
-\emph on
-name
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-(in-package 
-\emph on
-name
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-(import 
-\emph on
-name
-\emph default
- ...)
-\end_layout
-
-\begin_layout LyX-Code
-(export 
-\emph on
-name
-\emph default
- ...)
-\end_layout
-
-\begin_layout LyX-Code
-(list-packages)
-\end_layout
-
-\begin_layout LyX-Code
-(package-description 
-\emph on
-name
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-(set-package-description! 
-\emph on
-desc
-\emph default
-)
-\end_layout
-
-\begin_layout Subsection
-Bliss in Ignorance
-\end_layout
-
-\begin_layout Standard
-If you're not interested in how the package system works internally, and
- just want to use a package to program with or what have you, then this
- is all you need to know about packages.
- Essentially, packages are collections of definitions, some of which the
- package 
-\begin_inset Quotes eld
-\end_inset
-
-exports
-\begin_inset Quotes erd
-\end_inset
-
-.
- If one were to import from a package, then all of the package's exported
- definitions become accessible.
-\end_layout
-
-\begin_layout LyX-Code
-> (define-package 
-\begin_inset Quotes eld
-\end_inset
-
-example
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (export 
-\begin_inset Quotes eld
-\end_inset
-
-hello
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (define (hello) (display 
-\begin_inset Quotes eld
-\end_inset
-
-Hello, world!
-\begin_inset Quotes erd
-\end_inset
-
-) (newline))
-\end_layout
-
-\begin_layout LyX-Code
-> (in-package 
-\begin_inset Quotes eld
-\end_inset
-
-
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (import 
-\begin_inset Quotes eld
-\end_inset
-
-example
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (hello)
-\end_layout
-
-\begin_layout LyX-Code
-
-\emph on
-Hello, world!
-\end_layout
-
-\begin_layout Subsection
-Cold Hard Reality
-\end_layout
-
-\begin_layout Standard
-The package system is implemented internally through a symbol table and
- a package table.
- The magic happens at symbol creation.
- If the symbol name has a colon in it, then a symbol corresponding to the
- name is created.
- Otherwise, if the name is already defined for the current package, the
- appropriate symbol is returned.
- Otherwise, the current package's name followed by a colon is prepended
- to the name, and a corresponding symbol is returned.
- Every symbol has a value associated with it, that is used to implement
- global variables.
- So the cost for looking up global variables is all borne at read-time,
- and when it comes to it is just as quick as bound or free scope.
-\end_layout
-
-\begin_layout LyX-Code
-> (define-package 
-\begin_inset Quotes eld
-\end_inset
-
-example2
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> 'hello
-\end_layout
-
-\begin_layout LyX-Code
-example2:hello
-\end_layout
-
-\begin_layout LyX-Code
-> (export 
-\begin_inset Quotes eld
-\end_inset
-
-hello
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (in-package 
-\begin_inset Quotes eld
-\end_inset
-
-
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> 'hello
-\end_layout
-
-\begin_layout LyX-Code
-hello
-\end_layout
-
-\begin_layout LyX-Code
-> (define-package 
-\begin_inset Quotes eld
-\end_inset
-
-example3
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (export 
-\begin_inset Quotes eld
-\end_inset
-
-hello
-\begin_inset Quotes erd
-\end_inset
-
- 
-\begin_inset Quotes eld
-\end_inset
-
-woo
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (import 
-\begin_inset Quotes eld
-\end_inset
-
-example2
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (in-package 
-\begin_inset Quotes eld
-\end_inset
-
-
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> (import 
-\begin_inset Quotes eld
-\end_inset
-
-example3
-\begin_inset Quotes erd
-\end_inset
-
-)
-\end_layout
-
-\begin_layout LyX-Code
-> 'hello
-\end_layout
-
-\begin_layout LyX-Code
-example2:hello
-\end_layout
-
-\begin_layout LyX-Code
-> 'woo
-\end_layout
-
-\begin_layout LyX-Code
-example3:woo
-\end_layout
-
-\begin_layout Subsection
-Included Packages
-\end_layout
-
-\begin_layout LyX-Code
-prelude
-\end_layout
-
-\begin_layout LyX-Code
-
+>
 \end_layout
 
 \end_body
