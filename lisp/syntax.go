@@ -127,19 +127,18 @@ func ReadLine(port Any) (string, os.Error) {
 }
 
 func Read(port Any) Any {
-	s, err := ReadLine(port)
-	if err != nil { return err }
-	return ReadString(s)
-}
-
-func ReadString(s string) Any {
+	pt, ok := port.(io.Reader)
+	if !ok { return TypeError(pt) }
 	l := lexer.New()
 	l.Regexes(nil, lex)
-	r := strings.NewReader(s)
-	src := peg.NewLex(r, l, func(id int) bool { return id != int(_WS) })
+	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) })
 	m, d := syntax.Match(src)
 	if m.Failed() { return Throw(Symbol("syntax-error"), "failed to parse") }
 	return d	
+}
+
+func ReadString(s string) Any {
+	return Read(strings.NewReader(s))
 }
 
 func toWrite(obj Any, def string) string {
