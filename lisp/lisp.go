@@ -71,9 +71,10 @@ func (self Primitive) GoString() string {
 	return "#<primitive>"
 }
 
-// Takes a function, which can take anything from none to four lisp.Any and 
+// Takes a function, which can take anything from none to five lisp.Any and 
 // must return lisp.Any, and returns a function that can be called by the
-// lisp system.
+// lisp system. Returns nil if it fails to match, which I suppose is pretty
+// bad, really.
 func WrapPrimitive(_f interface{}) Function {
 	wrap := func(l int, f func(Vector) Any) Function {
 		var res Function
@@ -406,9 +407,20 @@ func (self *Context) Load(path string) os.Error {
 }
 
 func (self *Context) Repl(in io.Reader, out io.Writer) {
-	for x := Read(in);; x = Read(in) {
-		Write(self.Eval(x), out)
-		Display("\n", out)
+	read := func() Any {
+		s, err := ReadLine(in)
+		if err != nil { return err }
+		return ReadString(s)
+	}
+	Display("> ", out)
+	for x := read();; x = read() {
+		if x == EOF_OBJECT { break }
+		x = self.Eval(x)
+		if x != nil {
+			Write(x, out)
+			Display("\n", out)
+		}
+		Display("> ", out)
 	}
 }
 
@@ -513,7 +525,7 @@ func (self *Context) evalDefine(ls Any) Any {
 	if !ok { return TypeError(d) }
 	d = Car(Cdr(ls))
 	if Failed(d) { return d }
-	self.env[n] = d
+	self.env[n] = self.evalExpr(d, nil)
 	return nil
 }
 
@@ -539,6 +551,14 @@ func (self *Context) expandList(ls Any) Any {
 		}
 		p.a = self.Expand(Car(cur))
 		next := new(Pair)
+		if Cdr(cur) == EMPTY_LIST {
+			p.d = EMPTY_LIST
+			break
+		}
+		if _, ok := Cdr(cur).(*Pair); !ok {
+			p.d = self.Expand(Cdr(cur))
+			break
+		}
 		p.d = next
 		p = next
 	}
@@ -547,7 +567,9 @@ func (self *Context) expandList(ls Any) Any {
 
 func (self *Context) expandDefinition(ls Any) Any {
 	if p, ok := Car(ls).(*Pair); ok {
-		return List(p.a, Cons(Symbol("lambda"), Cons(p.d, Cdr(ls))))
+		res := List(p.a, Cons(Symbol("lambda"), Cons(p.d, Cdr(ls))))
+		//Write(res, os.Stdout)
+		return res
 	}
 	return ls
 }
