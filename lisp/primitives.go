@@ -15,6 +15,7 @@ func Primitives() Environment {
 		"==": eq,
 		// syntax
 		"read": Read,
+		"read-string": readString,
 		"write": Write,
 		"display": Display,
 		"macro": newMacro,
@@ -50,17 +51,12 @@ func Primitives() Environment {
 		"list->vector": lsToVec,
 		// vectors
 		"make-vector": makeVector,
+		"vector-length": vectorLength,
 		"vector-ref": vectorRef,
 		"vector-set!": vectorSet,
 		"vector-slice": slice,
 		"vector->list": vecToLs,
 		"vector->string": vecToStr,
-		// maps
-		//~ "make-map": makeMap,
-		//~ "map-ref": mapGet,
-		//~ "map-set!": mapSet,
-		//~ "in-map?": mapCheck,
-		//~ "map-delete": mapDelete,
 		// ports
 		"read-char": readChar,
 		"read-byte": readByte,
@@ -83,6 +79,12 @@ func eq(a, b Any) Any {
 /*
 	Syntax
 */
+
+func readString(str Any) Any {
+	s, ok := str.(string)
+	if !ok { return TypeError(str) }
+	return ReadString(s)
+}
 
 func newMacro(m Any) Any {
 	f, ok := m.(Function)
@@ -316,6 +318,12 @@ func makeVector(size, fill Any) Any {
 	return res
 }
 
+func vectorLength(vec Any) Any {
+	v, ok := vec.(Vector)
+	if !ok { return TypeError(vec) }
+	return len(v)
+}
+
 func vectorRef(vec, idx Any) Any {
 	v, ok := vec.(Vector)
 	if !ok { return TypeError(vec) }
@@ -339,6 +347,8 @@ func slice(vec, lo, hi Any) Any {
 	if !ok { return TypeError(lo) }
 	h, ok := hi.(int)
 	if !ok { return TypeError(hi) }
+	if l < 0 { return Error(fmt.Sprintf("invalid index (%v)", h)) }
+	if h > len(v) { return Error(fmt.Sprintf("invalid index (%v)", h)) }
 	return v[l:h]
 }
 

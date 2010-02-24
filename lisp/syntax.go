@@ -109,6 +109,14 @@ var syntax = func() peg.Expr {
 		}),
 	})
 	return expr
+	//~ return peg.Bind(peg.Option(expr), func(x interface{}) interface{} {
+		//~ ex := x.([]interface{})
+		//~ if len(ex) == 0 {
+			//~ println("rawr")
+			//~ return nil 
+		//~ }
+		//~ return ex[0]
+	//~ })
 }()
 
 func ReadLine(port Any) (string, os.Error) {
@@ -129,9 +137,10 @@ func ReadLine(port Any) (string, os.Error) {
 func Read(port Any) Any {
 	pt, ok := port.(io.Reader)
 	if !ok { return TypeError(pt) }
+	if _, err := pt.Read([]byte{}); err == os.EOF { return EOF_OBJECT }
 	l := lexer.New()
 	l.Regexes(nil, lex)
-	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) })
+	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) && id != int(_COMMENT) })
 	m, d := syntax.Match(src)
 	if m.Failed() { return Throw(Symbol("syntax-error"), "failed to parse") }
 	return d	

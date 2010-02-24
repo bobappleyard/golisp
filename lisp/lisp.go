@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"unsafe"
+	"./errors"
 )
 
 /*
@@ -115,7 +117,8 @@ func WrapPrimitives(env map[string] interface{}) Environment {
 	res := make(Environment)
 	for k, v := range env {
 		f := WrapPrimitive(v)
-		if f != nil { res[Symbol(k)] = f }
+		if f == nil { errors.Fatal(os.ErrorString("invalid primitive function: " + k)) }
+		res[Symbol(k)] = f
 	}
 	return res
 }
@@ -410,11 +413,11 @@ func (self *Context) Repl(in io.Reader, out io.Writer) {
 	read := func() Any {
 		s, err := ReadLine(in)
 		if err != nil { return err }
+		if strings.TrimSpace(s) == "" { return nil }
 		return ReadString(s)
 	}
 	Display("> ", out)
-	for x := read();; x = read() {
-		if x == EOF_OBJECT { break }
+	for x := read(); x != EOF_OBJECT; x = read() {
 		x = self.Eval(x)
 		if x != nil {
 			Write(x, out)
