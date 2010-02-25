@@ -69,14 +69,14 @@ var syntax = func() peg.Expr {
 	expr.Add(peg.Or {
 		peg.Bind(_INT, func(x interface{}) interface{} { 
 			s, ok := x.(string)
-			if !ok { return TypeError(x) }
+			if !ok { return TypeError("string", x) }
 			res, err := strconv.Atoi(s)
 			if err != nil { return SystemError(err) }
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
 			s, ok := x.(string)
-			if !ok { return TypeError(x) }
+			if !ok { return TypeError("string", x) }
 			res, err := strconv.Atof(s)
 			if err != nil { return SystemError(err) }
 			return res
@@ -121,7 +121,7 @@ var syntax = func() peg.Expr {
 
 func ReadLine(port Any) (string, os.Error) {
 	pt, ok := port.(io.Reader)
-	if !ok { return "", TypeError(pt) }
+	if !ok { return "", TypeError("input-port", pt) }
 	buf := []byte{0}
 	res := ""
 	for {
@@ -136,7 +136,7 @@ func ReadLine(port Any) (string, os.Error) {
 
 func Read(port Any) Any {
 	pt, ok := port.(io.Reader)
-	if !ok { return TypeError(pt) }
+	if !ok { return TypeError("input-port", pt) }
 	if _, err := pt.Read([]byte{}); err == os.EOF { return EOF_OBJECT }
 	l := lexer.New()
 	l.Regexes(nil, lex)
@@ -164,14 +164,14 @@ func toWrite(obj Any, def string) string {
 
 func Write(obj, port Any) Any {
 	p, ok := port.(io.Writer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	io.WriteString(p, toWrite(obj, "%#v"))
 	return nil
 }
 
 func Display(obj, port Any) Any {
 	p, ok := port.(io.Writer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	io.WriteString(p, toWrite(obj, "%v"))
 	return nil
 }

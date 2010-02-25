@@ -148,8 +148,8 @@ func Error(msg string) os.Error {
 	return Throw(Symbol("error"), msg)
 }
 
-func TypeError(obj Any) os.Error {
-	return Throw(Symbol("type-error"), fmt.Sprintf("invalid type: %#v", obj))
+func TypeError(expected string, obj Any) os.Error {
+	return Throw(Symbol("type-error"), fmt.Sprintf("expecting %s: %#v", expected, obj))
 }
 
 func ArgumentError(f, args Any) os.Error {
@@ -205,7 +205,7 @@ func Cons(a, d Any) Any {
 func pairFunc(x Any, f func(*Pair) Any) Any {
 	if Failed(x) { return x }
 	p, ok := x.(*Pair)
-	if !ok { return TypeError(x) }
+	if !ok { return TypeError("pair", x) }
 	return f(p)
 }
 
@@ -457,7 +457,7 @@ func (self *Context) evalPair(x *Pair, tail *tailStruct) Any {
 			// otherwise fall through to a function call
 		}
 		case *Pair: // do nothing, it's handled below
-		default: return TypeError(n)
+		default: return TypeError("pair or symbol", n)
 	}
 	// function application
 	return self.evalCall(self.evalExpr(x.a, nil), x.d, tail)
@@ -478,7 +478,7 @@ func (self *Context) mutate(_name, val Any) Any {
 	}
 	name, ok := _name.(Symbol)
 	if !ok {
-		return TypeError(_name)
+		return TypeError("symbol", _name)
 	}
 	_, ok = self.env[name]
 	if !ok {
@@ -510,7 +510,7 @@ func (self *Context) evalCall(_f, args Any, tail *tailStruct) Any {
 	}
 	// get the function
 	f, ok := _f.(Function)
-	if !ok { return TypeError(_f) }
+	if !ok { return TypeError("function", _f) }
 	// call it
 	if tail == nil {
 		return f.Apply(argvals)
@@ -525,7 +525,7 @@ func (self *Context) evalDefine(ls Any) Any {
 	d := Car(ls)
 	if Failed(d) { return d }
 	n, ok := d.(Symbol)
-	if !ok { return TypeError(d) }
+	if !ok { return TypeError("symbol", d) }
 	d = Car(Cdr(ls))
 	if Failed(d) { return d }
 	self.env[n] = self.evalExpr(d, nil)
@@ -569,10 +569,13 @@ func (self *Context) expandList(ls Any) Any {
 }
 
 func (self *Context) expandDefinition(ls Any) Any {
-	if p, ok := Car(ls).(*Pair); ok {
-		res := List(p.a, Cons(Symbol("lambda"), Cons(p.d, Cdr(ls))))
-		//Write(res, os.Stdout)
-		return res
+	for {
+		if p, ok := Car(ls).(*Pair); ok {
+			ls = List(p.a, Cons(Symbol("lambda"), Cons(p.d, Cdr(ls))))
+		} else {
+			ls = Cons(Car(ls), self.expandList(Cdr(ls)))
+			break
+		}
 	}
 	return ls
 }
@@ -598,8 +601,8 @@ func (self *closure) Apply(args Any) Any {
 		if cl, ok := f.(*closure); ok {
 			f = nil
 			ctx := NewContext(cl.ctx)
-			ok = self.bindArgs(args)
-			if !ok { return ArgumentError(f, args) }
+			err := cl.bindArgs(args)
+			if err != nil { return err }
 			res = ctx.evalBlock(cl.body, tail)
 		} else {
 			// primitive functions, or whatever
@@ -609,37 +612,37 @@ func (self *closure) Apply(args Any) Any {
 	return res
 }
 
-func (self *closure) bindArgs(args Any) bool {
+func (self *closure) bindArgs(args Any) os.Error {
 	vars := self.vars
 	for {
-		if Failed(args) { return false }
+		if Failed(args) { return args.(os.Error) }
 		if vars == EMPTY_LIST && args == EMPTY_LIST {
-			return true
+			return nil
 		}
 		if vars == EMPTY_LIST {
-			return false
+			return ArgumentError(self, args)
 		}
 		p, pair := vars.(*Pair)
 		if args == EMPTY_LIST && pair {
-			return false
+			return ArgumentError(self, args)
 		}
 		if !pair {
 			return self.bindArg(vars, args)
 		}
-		if !self.bindArg(p.a, Car(args)) {
-			return false
+		err := self.bindArg(p.a, Car(args))
+		if err != nil {
+			return err
 		}
 		vars, args = p.d, Cdr(args)
 	}
 	panic("unreachable")
 }
 
-func (self *closure) bindArg(name, val Any) bool {
-	if n, ok := name.(Symbol); ok {
-		self.ctx.env[n] = val
-		return true
-	}
-	return false
+func (self *closure) bindArg(name, val Any) os.Error {
+	n, ok := name.(Symbol)
+	if !ok { return TypeError("symbol", name) }
+	self.ctx.env[n] = val
+	return nil
 }
 
 /*

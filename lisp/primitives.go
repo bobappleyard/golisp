@@ -15,7 +15,7 @@ func Primitives() Environment {
 		"==": eq,
 		// syntax
 		"read": Read,
-		"read-string": readString,
+		"read-string": readStr,
 		"write": Write,
 		"display": Display,
 		"macro": newMacro,
@@ -80,15 +80,15 @@ func eq(a, b Any) Any {
 	Syntax
 */
 
-func readString(str Any) Any {
+func readStr(str Any) Any {
 	s, ok := str.(string)
-	if !ok { return TypeError(str) }
+	if !ok { return TypeError("string", str) }
 	return ReadString(s)
 }
 
 func newMacro(m Any) Any {
 	f, ok := m.(Function)
-	if !ok { return TypeError(m) }
+	if !ok { return TypeError("function", m) }
 	return &macro { f }
 }
 
@@ -98,35 +98,35 @@ func newMacro(m Any) Any {
 
 func load(path, env Any) Any {
 	ctx, ok := env.(*Context)
-	if !ok { return TypeError(env) }
+	if !ok { return TypeError("environment", env) }
 	p, ok := path.(string)
-	if !ok { return TypeError(path) }
+	if !ok { return TypeError("string", path) }
 	return ctx.Load(p)
 }
 
 func eval(expr, env Any) Any {
 	ctx, ok := env.(*Context)
-	if !ok { return TypeError(env) }
+	if !ok { return TypeError("environment", env) }
 	return ctx.Eval(expr)
 }
 
 func apply(f, args Any) Any {
 	fn, ok := f.(Function)
-	if !ok { return TypeError(f) }
+	if !ok { return TypeError("function", f) }
 	return fn.Apply(args)
 }
 
 func throw(kind, msg Any) Any {
 	k, ok := kind.(Symbol)
-	if !ok { return TypeError(kind) }
+	if !ok { return TypeError("symbol", kind) }
 	return Throw(k, fmt.Sprintf("%v", msg))
 }
 		
 func catch(thk, hnd Any) Any {
 	t, ok := thk.(Function)
-	if !ok { return TypeError(t) }
+	if !ok { return TypeError("function", t) }
 	h, ok := hnd.(Function)
-	if !ok { return TypeError(h) }
+	if !ok { return TypeError("function", h) }
 	res := Call(t)
 	// handle any errors
 	if r, ok := res.(*errorStruct); ok {
@@ -166,18 +166,18 @@ func typeOf(x Any) Any {
 
 func newCustom(name, fn Any) Any {
 	n, ok := name.(Symbol)
-	if !ok { return TypeError(name) }
+	if !ok { return TypeError("symbol", name) }
 	f, ok := fn.(Function)
-	if !ok { return TypeError(fn) }
+	if !ok { return TypeError("function", fn) }
 	wrap := WrapPrimitive(func(x Any) Any { return &Custom { n, x } })
 	unwrap := WrapPrimitive(func(x Any) Any {
 		c, ok := x.(*Custom)
-		if !ok || c.name != n { return TypeError(x) }
+		if !ok || c.name != n { return TypeError(string(n), x) }
 		return c.Get()
 	})
 	set := WrapPrimitive(func(x, v Any) Any {
 		c, ok := x.(*Custom)
-		if !ok || c.name != n { return TypeError(x) }
+		if !ok || c.name != n { return TypeError(string(n), x) }
 		c.Set(v)
 		return nil
 	})
@@ -195,38 +195,38 @@ func fixToFlo(_x Any) Any {
 		case int: return float(x)
 		case float: return x
 	}
-	return TypeError(_x) 
+	return TypeError("number", _x) 
 }
 
 func fixnumAdd(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	return a + b
 }
 
 func fixnumSub(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	return a - b
 }
 
 func fixnumMul(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	return a * b
 }
 
 func fixnumDiv(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	if b == 0 { return Error("divide by zero") }
 	if a % b == 0 { return a / b }
 	return float(a) / float(b)
@@ -234,51 +234,51 @@ func fixnumDiv(_a, _b Any) Any {
 
 func quotient(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	if b == 0 { return Error("divide by zero") }	
 	return a / b
 }
 
 func modulo(_a, _b Any) Any {
 	a, ok := _a.(int)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("fixnum", _b) }
 	if b == 0 { return Error("divide by zero") }
 	return a % b
 }
 
 func flonumAdd(_a, _b Any) Any {
 	a, ok := _a.(float)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("flonum", _a) }
 	b, ok := _b.(float)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("flonum", _b) }
 	return a + b
 }
 
 func flonumSub(_a, _b Any) Any {
 	a, ok := _a.(float)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("flonum", _a) }
 	b, ok := _b.(float)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("flonum", _b) }
 	return a - b
 }
 
 func flonumMul(_a, _b Any) Any {
 	a, ok := _a.(float)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("flonum", _a) }
 	b, ok := _b.(float)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("flonum", _b) }
 	return a * b
 }
 
 func flonumDiv(_a, _b Any) Any {
 	a, ok := _a.(float)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("flonum", _a) }
 	b, ok := _b.(float)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("flonum", _b) }
 	if b == 0 { return Error("divide by zero") }
 	return a / b
 }
@@ -289,15 +289,15 @@ func flonumDiv(_a, _b Any) Any {
 
 func stringAppend(_a, _b Any) Any {
 	a, ok := _a.(string)
-	if !ok { return TypeError(_a) }
+	if !ok { return TypeError("string", _a) }
 	b, ok := _b.(string)
-	if !ok { return TypeError(_b) }
+	if !ok { return TypeError("string", _b) }
 	return a + b
 }
 
 func strToVec(str Any) Any {
 	s, ok := str.(string)
-	if !ok { return TypeError(str) }
+	if !ok { return TypeError("string", str) }
 	rs := strings.Runes(s)
 	res := make(Vector, len(rs))
 	for i, x := range rs { res[i] = x }
@@ -310,7 +310,7 @@ func strToVec(str Any) Any {
 
 func makeVector(size, fill Any) Any {
 	s, ok := size.(int)
-	if !ok { return TypeError(size) }
+	if !ok { return TypeError("vector", size) }
 	res := make(Vector, s)
 	for i,_ := range res {
 		res[i] = fill
@@ -320,33 +320,33 @@ func makeVector(size, fill Any) Any {
 
 func vectorLength(vec Any) Any {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	return len(v)
 }
 
 func vectorRef(vec, idx Any) Any {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	i, ok := idx.(int)
-	if !ok { return TypeError(idx) }
+	if !ok { return TypeError("fixnum", idx) }
 	return v.Get(i)
 }
 
 func vectorSet(vec, idx, val Any) Any {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	i, ok := idx.(int)
-	if !ok { return TypeError(idx) }
+	if !ok { return TypeError("fixnum", idx) }
 	return v.Set(i, val)
 }
 
 func slice(vec, lo, hi Any) Any {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	l, ok := lo.(int)
-	if !ok { return TypeError(lo) }
+	if !ok { return TypeError("fixnum", lo) }
 	h, ok := hi.(int)
-	if !ok { return TypeError(hi) }
+	if !ok { return TypeError("fixnum", hi) }
 	if l < 0 { return Error(fmt.Sprintf("invalid index (%v)", h)) }
 	if h > len(v) { return Error(fmt.Sprintf("invalid index (%v)", h)) }
 	return v[l:h]
@@ -354,7 +354,7 @@ func slice(vec, lo, hi Any) Any {
 
 func lsToVec(lst Any) Any {
 	l := ListLen(lst)
-	if l == -1 { return TypeError(lst) }
+	if l == -1 { return TypeError("pair", lst) }
 	res := make(Vector, l)
 	for i := 0; lst != EMPTY_LIST; i, lst = i + 1, Cdr(lst) {
 		a := Car(lst)
@@ -366,7 +366,7 @@ func lsToVec(lst Any) Any {
 
 func vecToLs(vec Any) Any {
 	xs, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	var res Any = EMPTY_LIST
 	for i := len(xs) - 1; i >= 0; i-- {
 		res = Cons(xs[i], res)
@@ -376,11 +376,11 @@ func vecToLs(vec Any) Any {
 
 func vecToStr(vec Any) Any {
 	cs, ok := vec.(Vector)
-	if !ok { return TypeError(vec) }
+	if !ok { return TypeError("vector", vec) }
 	res := make([]int, len(cs))
 	for i, c := range cs {
 		r, ok := c.(int)
-		if !ok { return TypeError(c) }
+		if !ok { return TypeError("vector of fixnums", vec) }
 		res[i] = r
 	}
 	return string(res)
@@ -394,7 +394,7 @@ var EOF_OBJECT = NewConstant("#eof-object")
 
 func readChar(port Any) Any {
 	p, ok := port.(*bufio.Reader)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("input-port", port) }
 	r, _, err := p.ReadRune()
 	if err != nil {
 		if err == os.EOF { return EOF_OBJECT }
@@ -405,7 +405,7 @@ func readChar(port Any) Any {
 
 func readByte(port Any) Any {	
 	p, ok := port.(io.Reader)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("input-port", port) }
 	buf := make([]byte, 1)
 	_, err := p.Read(buf); 		
 	if err != nil { 
@@ -421,9 +421,9 @@ func isEof(x Any) Any {
 
 func writeString(port, str Any) Any {
 	p, ok := port.(*bufio.Writer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	s, ok := str.(string)
-	if !ok { return TypeError(str) }
+	if !ok { return TypeError("string", str) }
 	_, err := p.WriteString(s)
 	if err != nil { return SystemError(err) }
 	return nil
@@ -431,9 +431,9 @@ func writeString(port, str Any) Any {
 
 func writeByte(port, bte Any) Any {	
 	p, ok := port.(io.Writer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	b, ok := bte.(int)
-	if !ok { return TypeError(bte) }
+	if !ok { return TypeError("fixnum", bte) }
 	_, err := p.Write([]byte { byte(b) })
 	if err != nil { return SystemError(err) }
 	return nil
@@ -441,7 +441,7 @@ func writeByte(port, bte Any) Any {
 
 func flush(port Any) Any {
 	p, ok := port.(*bufio.Writer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	err := p.Flush()
 	if err != nil { return SystemError(err) }
 	return nil
@@ -449,7 +449,7 @@ func flush(port Any) Any {
 
 func closePort(port Any) Any {
 	p, ok := port.(io.Closer)
-	if !ok { return TypeError(port) }
+	if !ok { return TypeError("output-port", port) }
 	err := p.Close()
 	if err != nil { return SystemError(err) }
 	return nil
