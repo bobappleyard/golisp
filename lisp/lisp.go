@@ -112,12 +112,15 @@ func WrapPrimitive(_f interface{}) Function {
 }
 
 // Takes a map, containing functions to be passed to WrapPrimitive. Returns 
-// an environment.
+// an environment. Will crash the program if any fail to match. Consider 
+// yourself warned.
 func WrapPrimitives(env map[string] interface{}) Environment {
 	res := make(Environment)
 	for k, v := range env {
 		f := WrapPrimitive(v)
-		if f == nil { errors.Fatal(os.ErrorString("invalid primitive function: " + k)) }
+		if f == nil { 
+			errors.Fatal(os.ErrorString("invalid primitive function: " + k)) 
+		}
 		res[Symbol(k)] = f
 	}
 	return res
@@ -425,6 +428,7 @@ func (self *Context) Repl(in io.Reader, out io.Writer) {
 		}
 		Display("> ", out)
 	}
+	Display("\n", out)
 }
 
 
@@ -444,10 +448,14 @@ func (self *Context) evalPair(x *Pair, tail *tailStruct) Any {
 		case Symbol: switch string(n) {
 			// core forms
 			case "quote": return Car(x.d)
-			case "if": if True(self.evalExpr(ListRef(x.d, 0), nil)) {
-				return self.evalExpr(ListRef(x.d, 1), tail)
-			} else {
-				return self.evalExpr(ListRef(x.d, 2), tail)
+			case "if": {
+				test := self.evalExpr(ListRef(x.d, 0), nil)
+				if Failed(test) { return test }
+				if True(test) {
+					return self.evalExpr(ListRef(x.d, 1), tail)
+				} else {
+					return self.evalExpr(ListRef(x.d, 2), tail)
+				}
 			}
 			case "lambda": return &closure { self, Car(x.d), Cdr(x.d) }
 			case "set!": return self.mutate(Car(x.d), Car(Cdr(x.d)))
@@ -601,7 +609,7 @@ func (self *closure) Apply(args Any) Any {
 		if cl, ok := f.(*closure); ok {
 			f = nil
 			ctx := NewContext(cl.ctx)
-			err := cl.bindArgs(args)
+			err := cl.bindArgs(ctx, args)
 			if err != nil { return err }
 			res = ctx.evalBlock(cl.body, tail)
 		} else {
@@ -612,7 +620,7 @@ func (self *closure) Apply(args Any) Any {
 	return res
 }
 
-func (self *closure) bindArgs(args Any) os.Error {
+func (self *closure) bindArgs(ctx *Context, args Any) os.Error {
 	vars := self.vars
 	for {
 		if Failed(args) { return args.(os.Error) }
@@ -627,9 +635,9 @@ func (self *closure) bindArgs(args Any) os.Error {
 			return ArgumentError(self, args)
 		}
 		if !pair {
-			return self.bindArg(vars, args)
+			return self.bindArg(ctx, vars, args)
 		}
-		err := self.bindArg(p.a, Car(args))
+		err := self.bindArg(ctx, p.a, Car(args))
 		if err != nil {
 			return err
 		}
@@ -638,10 +646,10 @@ func (self *closure) bindArgs(args Any) os.Error {
 	panic("unreachable")
 }
 
-func (self *closure) bindArg(name, val Any) os.Error {
+func (self *closure) bindArg(ctx *Context, name, val Any) os.Error {
 	n, ok := name.(Symbol)
 	if !ok { return TypeError("symbol", name) }
-	self.ctx.env[n] = val
+	ctx.env[n] = val
 	return nil
 }
 

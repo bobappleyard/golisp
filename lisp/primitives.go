@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"strings"
 	"fmt"
+	"strconv"
 )
 
 // All of the primitive functions defined by the library.
@@ -29,6 +30,10 @@ func Primitives() Environment {
 		// type system
 		"type-of": typeOf,
 		"define-custom-type": newCustom,
+		// symbols
+		"symbol->string": symToStr,
+		"string->symbol": strToSym,
+		"gensym": gensym,
 		// numbers
 		"fixnum->flonum": fixToFlo,
 		"fixnum-add": fixnumAdd,
@@ -184,6 +189,38 @@ func newCustom(name, fn Any) Any {
 	res := Call(f, wrap, unwrap, set)
 	if Failed(res) { return res }
 	return nil
+}
+
+/*
+	Symbols
+*/
+
+func symToStr(sym Any) Any {
+	s, ok := sym.(Symbol)
+	if !ok { return TypeError("symbol", sym) }
+	return string(s)
+}
+
+func strToSym(str Any) Any {
+	s, ok := str.(string)
+	if !ok { return TypeError("string", str) }
+	return Symbol(s)
+}
+
+var gensyms = func() <-chan Symbol {
+	res := make(chan Symbol)
+	go func() {
+		i := 0
+		for {
+			res <- Symbol("#gensym" + strconv.Itoa(i))
+			i++
+		}
+	}()
+	return res
+}()
+
+func gensym() Any {
+	return <-gensyms
 }
 
 /*

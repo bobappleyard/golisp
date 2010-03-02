@@ -109,14 +109,6 @@ var syntax = func() peg.Expr {
 		}),
 	})
 	return expr
-	//~ return peg.Bind(peg.Option(expr), func(x interface{}) interface{} {
-		//~ ex := x.([]interface{})
-		//~ if len(ex) == 0 {
-			//~ println("rawr")
-			//~ return nil 
-		//~ }
-		//~ return ex[0]
-	//~ })
 }()
 
 func ReadLine(port Any) (string, os.Error) {
