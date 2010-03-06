@@ -16,9 +16,9 @@ binary in your `$PATH`.
 any parameters.
 
 
-You should now have a program named "lispi" in the current directory.
+You should now have a program named "gli" in the current directory.
 
-    $ ./lispi
+    $ ./gli
 
 Gives you a REPL.
 
