@@ -108,6 +108,7 @@ func WrapPrimitive(_f interface{}) Function {
 			return f(args[0], args[1], args[2], args[3], args[4])
 		})
 	}
+	errors.Fatal(os.ErrorString("invalid primitive function"))
 	return nil
 }
 
@@ -117,11 +118,7 @@ func WrapPrimitive(_f interface{}) Function {
 func WrapPrimitives(env map[string] interface{}) Environment {
 	res := make(Environment)
 	for k, v := range env {
-		f := WrapPrimitive(v)
-		if f == nil { 
-			errors.Fatal(os.ErrorString("invalid primitive function: " + k)) 
-		}
-		res[Symbol(k)] = f
+		res[Symbol(k)] = WrapPrimitive(v)
 	}
 	return res
 }
@@ -152,7 +149,10 @@ func Error(msg string) os.Error {
 }
 
 func TypeError(expected string, obj Any) os.Error {
-	return Throw(Symbol("type-error"), fmt.Sprintf("expecting %s: %#v", expected, obj))
+	return Throw(
+		Symbol("type-error"), 
+		fmt.Sprintf("expecting %s: %s", expected, toWrite("%#v", obj)),
+	)
 }
 
 func ArgumentError(f, args Any) os.Error {
@@ -314,13 +314,13 @@ func (self *Custom) Set(val Any) {
 	Evaluation related stuff
 */
 
-type Context struct {
+type Scope struct {
 	env Environment
-	parent *Context
+	parent *Scope
 }
 
 type closure struct {
-	ctx *Context
+	ctx *Scope
 	vars, body Any
 }
 
@@ -333,14 +333,14 @@ type tailStruct struct {
 	args *Any
 }
 
-// Create a new execution context for some code.
-func NewContext(parent *Context) *Context {
-	return &Context { make(Environment), parent }
+// Create a new execution Scope for some code.
+func NewScope(parent *Scope) *Scope {
+	return &Scope { make(Environment), parent }
 }
 
-// Create a Context that can be used as an interpreter.
-func New() *Context {
-	res := NewContext(nil)
+// Create a Scope that can be used as an interpreter.
+func New() *Scope {
+	res := NewScope(nil)
 	res.Bind(Primitives())
 	res.Bind(WrapPrimitives(map[string] interface{} {
 		"root-environment": func() Any { return res },
@@ -348,26 +348,26 @@ func New() *Context {
 	return res
 }
 
-// Contexts
+// Scopes
 
-func (self *Context) String() string {
+func (self *Scope) String() string {
 	return self.GoString()
 }
 
-func (self *Context) GoString() string {
+func (self *Scope) GoString() string {
 	return "#<environment>"
 }
 
-func (self *Context) Eval(x Any) Any {
+func (self *Scope) Eval(x Any) Any {
 	expr := self.Expand(x)
 	return self.evalExpr(expr, nil)
 }
 
-func (self *Context) EvalString(x string) Any {
+func (self *Scope) EvalString(x string) Any {
 	return self.Eval(ReadString(x))
 }
 
-func (self *Context) Expand(x Any) Any {
+func (self *Scope) Expand(x Any) Any {
 	for {
 		p, ok := x.(*Pair); if !ok { break }
 		if s, ok := p.a.(Symbol); ok {
@@ -392,17 +392,17 @@ func (self *Context) Expand(x Any) Any {
 	return x
 }
 
-func (self *Context) Bind(env Environment) {
+func (self *Scope) Bind(env Environment) {
 	for k, v := range env {
 		self.env[k] = v
 	}
 }
 
-func (self *Context) Lookup(x string) Any {
+func (self *Scope) Lookup(x string) Any {
 	return self.lookupSym(Symbol(x))
 }
 
-func (self *Context) Load(path string) os.Error {
+func (self *Scope) Load(path string) os.Error {
 	src, err := os.Open(path, os.O_RDONLY, 0)
 	if err != nil { return SystemError(err) }
 	for x := Read(src); x != EOF_OBJECT; x = Read(src) {
@@ -412,7 +412,7 @@ func (self *Context) Load(path string) os.Error {
 	return nil
 }
 
-func (self *Context) Repl(in io.Reader, out io.Writer) {
+func (self *Scope) Repl(in io.Reader, out io.Writer) {
 	read := func() Any {
 		s, err := ReadLine(in)
 		if err != nil { return err }
@@ -433,7 +433,7 @@ func (self *Context) Repl(in io.Reader, out io.Writer) {
 
 
 
-func (self *Context) evalExpr(_x Any, tail *tailStruct) Any {
+func (self *Scope) evalExpr(_x Any, tail *tailStruct) Any {
 	// pairs and symbols get treated specially
 	switch x := _x.(type) {
 		case *Pair: return self.evalPair(x, tail)
@@ -443,7 +443,7 @@ func (self *Context) evalExpr(_x Any, tail *tailStruct) Any {
 	return _x
 }
 
-func (self *Context) evalPair(x *Pair, tail *tailStruct) Any {
+func (self *Scope) evalPair(x *Pair, tail *tailStruct) Any {
 	switch n := x.a.(type) {
 		case Symbol: switch string(n) {
 			// core forms
@@ -471,7 +471,7 @@ func (self *Context) evalPair(x *Pair, tail *tailStruct) Any {
 	return self.evalCall(self.evalExpr(x.a, nil), x.d, tail)
 }
 
-func (self *Context) lookupSym(x Symbol) Any {
+func (self *Scope) lookupSym(x Symbol) Any {
 	if self == nil { return Error(fmt.Sprintf("unknown variable: %s", x)) }
 	res, ok := self.env[x]
 	if ok {
@@ -480,7 +480,7 @@ func (self *Context) lookupSym(x Symbol) Any {
 	return self.parent.lookupSym(x)
 }
 
-func (self *Context) mutate(_name, val Any) Any {
+func (self *Scope) mutate(_name, val Any) Any {
 	if self == nil {
 		return Error(fmt.Sprintf("unknown variable: %s", _name))
 	}
@@ -496,7 +496,7 @@ func (self *Context) mutate(_name, val Any) Any {
 	return nil
 }
 
-func (self *Context) evalCall(_f, args Any, tail *tailStruct) Any {
+func (self *Scope) evalCall(_f, args Any, tail *tailStruct) Any {
 	if Failed(_f) { return _f }
 	var argvals Any = EMPTY_LIST
 	p := new(Pair)
@@ -529,18 +529,20 @@ func (self *Context) evalCall(_f, args Any, tail *tailStruct) Any {
 	return nil
 }
 
-func (self *Context) evalDefine(ls Any) Any {
+func (self *Scope) evalDefine(ls Any) Any {
 	d := Car(ls)
 	if Failed(d) { return d }
 	n, ok := d.(Symbol)
 	if !ok { return TypeError("symbol", d) }
 	d = Car(Cdr(ls))
 	if Failed(d) { return d }
-	self.env[n] = self.evalExpr(d, nil)
+	d = self.evalExpr(d, nil)
+	if Failed(d) { return d }
+	self.env[n] = d
 	return nil
 }
 
-func (self *Context) evalBlock(body Any, tail *tailStruct) Any {
+func (self *Scope) evalBlock(body Any, tail *tailStruct) Any {
 	var res Any
 	for cur := body; cur != EMPTY_LIST; cur = Cdr(cur) {
 		if Cdr(cur) == EMPTY_LIST { // in tail position
@@ -553,7 +555,7 @@ func (self *Context) evalBlock(body Any, tail *tailStruct) Any {
 	return res
 }
 
-func (self *Context) expandList(ls Any) Any {
+func (self *Scope) expandList(ls Any) Any {
 	var res Any = EMPTY_LIST
 	p := new(Pair)
 	for cur := ls; cur != EMPTY_LIST; cur = Cdr(cur) {
@@ -576,7 +578,7 @@ func (self *Context) expandList(ls Any) Any {
 	return res
 }
 
-func (self *Context) expandDefinition(ls Any) Any {
+func (self *Scope) expandDefinition(ls Any) Any {
 	for {
 		if p, ok := Car(ls).(*Pair); ok {
 			ls = List(p.a, Cons(Symbol("lambda"), Cons(p.d, Cdr(ls))))
@@ -608,7 +610,7 @@ func (self *closure) Apply(args Any) Any {
 	for f != nil {
 		if cl, ok := f.(*closure); ok {
 			f = nil
-			ctx := NewContext(cl.ctx)
+			ctx := NewScope(cl.ctx)
 			err := cl.bindArgs(ctx, args)
 			if err != nil { return err }
 			res = ctx.evalBlock(cl.body, tail)
@@ -620,33 +622,23 @@ func (self *closure) Apply(args Any) Any {
 	return res
 }
 
-func (self *closure) bindArgs(ctx *Context, args Any) os.Error {
+func (self *closure) bindArgs(ctx *Scope, args Any) os.Error {
 	vars := self.vars
 	for {
 		if Failed(args) { return args.(os.Error) }
-		if vars == EMPTY_LIST && args == EMPTY_LIST {
-			return nil
-		}
-		if vars == EMPTY_LIST {
-			return ArgumentError(self, args)
-		}
+		if vars == EMPTY_LIST && args == EMPTY_LIST { return nil }
+		if vars == EMPTY_LIST { return ArgumentError(self, args) }
 		p, pair := vars.(*Pair)
-		if args == EMPTY_LIST && pair {
-			return ArgumentError(self, args)
-		}
-		if !pair {
-			return self.bindArg(ctx, vars, args)
-		}
+		if args == EMPTY_LIST && pair { return ArgumentError(self, args) }
+		if !pair { return self.bindArg(ctx, vars, args) }
 		err := self.bindArg(ctx, p.a, Car(args))
-		if err != nil {
-			return err
-		}
+		if err != nil { return err }
 		vars, args = p.d, Cdr(args)
 	}
 	panic("unreachable")
 }
 
-func (self *closure) bindArg(ctx *Context, name, val Any) os.Error {
+func (self *closure) bindArg(ctx *Scope, name, val Any) os.Error {
 	n, ok := name.(Symbol)
 	if !ok { return TypeError("symbol", name) }
 	ctx.env[n] = val

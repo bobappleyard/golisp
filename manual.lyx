@@ -84,6 +84,9 @@ Go seems like a good language for implementing interpreters for other languages
  It has enough expressiveness to easily define the basics of a Lisp system.
  In particular, the garbage collector, the mechanism for dynamic types and
  built-in maps greatly eased development.
+ Some of the built-in APIs and default behaviours are very amenable to this
+ kind of system.
+ They make parts of it effortless.
 \end_layout
 
 \begin_layout Standard
@@ -93,6 +96,43 @@ LatexCommand tableofcontents
 \end_inset
 
 
+\end_layout
+
+\begin_layout Section
+Programming Golisp
+\end_layout
+
+\begin_layout Standard
+Golisp is written as a library, but a driver for this exists as a command-line
+ program, 
+\family typewriter
+gli
+\family default
+.
+ You can use this program to experiment with the language, or maybe even
+ write programs in.
+\end_layout
+
+\begin_layout Subsection
+Hello world
+\end_layout
+
+\begin_layout Standard
+A minimal program, hello world might look something like this:
+\end_layout
+
+\begin_layout LyX-Code
+(display 
+\begin_inset Quotes eld
+\end_inset
+
+Hello, world!
+\backslash
+n
+\begin_inset Quotes erd
+\end_inset
+
+)
 \end_layout
 
 \begin_layout Section
@@ -164,10 +204,6 @@ hello
 
 \begin_layout LyX-Code
 hello a + 2cool4u   ; symbols
-\end_layout
-
-\begin_layout LyX-Code
-yo:                 ; keyword
 \end_layout
 
 \begin_layout LyX-Code
@@ -257,6 +293,10 @@ body
 \end_layout
 
 \begin_layout LyX-Code
+(local-environment)
+\end_layout
+
+\begin_layout LyX-Code
 (
 \emph on
 f args 
@@ -290,6 +330,11 @@ define mutates the local environment.
 
 \begin_layout Description
 begin groups expressions to be evaluated sequentially.
+\end_layout
+
+\begin_layout Description
+local-environment evaluates to the current environment.
+ It's an experiment.
 \end_layout
 
 \begin_layout Description
@@ -350,6 +395,58 @@ Set!
 
 \begin_layout Subsubsection
 Define
+\end_layout
+
+\begin_layout LyX-Code
+> (define a 1)
+\end_layout
+
+\begin_layout LyX-Code
+> a
+\end_layout
+
+\begin_layout LyX-Code
+1
+\end_layout
+
+\begin_layout LyX-Code
+> (begin (define a 2) a)
+\end_layout
+
+\begin_layout LyX-Code
+2
+\end_layout
+
+\begin_layout LyX-Code
+> a
+\end_layout
+
+\begin_layout LyX-Code
+2
+\end_layout
+
+\begin_layout LyX-Code
+> ((lambda () (define a 3) a))
+\end_layout
+
+\begin_layout LyX-Code
+3
+\end_layout
+
+\begin_layout LyX-Code
+> a
+\end_layout
+
+\begin_layout LyX-Code
+2
+\end_layout
+
+\begin_layout LyX-Code
+
+\end_layout
+
+\begin_layout LyX-Code
+
 \end_layout
 
 \begin_layout Subsubsection
@@ -938,16 +1035,7 @@ v
 \end_layout
 
 \begin_layout Subsection
-Control Primitives
-\end_layout
-
-\begin_layout Subsection
-System Primitives
-\end_layout
-
-\begin_layout Standard
-These primitives are concerned with either control of the Golisp interpreter,
- or of the wider operating system.
+Control
 \end_layout
 
 \begin_layout Section
@@ -961,7 +1049,7 @@ ng with this object.
 \end_layout
 
 \begin_layout Subsection
-Contexts and Environments
+Scopes and Environments
 \end_layout
 
 \begin_layout LyX-Code
@@ -989,7 +1077,7 @@ type Environment map[Symbol] Any
 \end_layout
 
 \begin_layout LyX-Code
-type Context struct {
+type Scope struct {
 \end_layout
 
 \begin_layout LyX-Code
@@ -997,7 +1085,7 @@ type Context struct {
 \end_layout
 
 \begin_layout LyX-Code
-	parent *Context
+	parent *Scope
 \end_layout
 
 \begin_layout LyX-Code
@@ -1006,44 +1094,95 @@ type Context struct {
 
 \begin_layout Standard
 An environment provides a mapping from Symbols to arbitrary objects.
- A context strings environments together and co-ordinates evaluation.
- Therefore most of the more interesting methods are on the Context type:
+ A scope strings environments together and co-ordinates evaluation.
+ Therefore most of the more interesting methods are on the Scope type:
 \end_layout
 
 \begin_layout LyX-Code
-func NewContext(parent *Context) *Context
+func NewScope(parent *Scope) *Scope
 \end_layout
 
 \begin_layout LyX-Code
-func New() *Context
+func New() *Scope
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Eval(x Any) Any
+func (self *Scope) Eval(x Any) Any
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) EvalString(x string) Any
+func (self *Scope) EvalString(x string) Any
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Expand(x Any) Any
+func (self *Scope) Expand(x Any) Any
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Bind(env Environment)
+func (self *Scope) Bind(env Environment)
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Lookup(x string) Any
+func (self *Scope) Lookup(x string) Any
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Load(path string) os.Error
+func (self *Scope) Load(path string) os.Error
 \end_layout
 
 \begin_layout LyX-Code
-func (self *Context) Repl(in io.Reader, out io.Writer)
+func (self *Scope) Repl(in io.Reader, out io.Writer)
+\end_layout
+
+\begin_layout Subsubsection
+New, NewScope
+\end_layout
+
+\begin_layout Standard
+New creates a new interpreter.
+ This is seeded with a default set of primitives, as well as loading a prelude.
+ NewScope creates a scope that can refer to a parent scope.
+ You probably won't need to use this unless you're pulling some funny business.
+\end_layout
+
+\begin_layout Subsubsection
+Eval, EvalString
+\end_layout
+
+\begin_layout Standard
+Evaluate an expression in the given scope.
+ The expression can be either encoded as a string, or as the corresponding
+ internal representation.
+\end_layout
+
+\begin_layout Subsubsection
+Expand
+\end_layout
+
+\begin_layout Standard
+Take an expression, and perform macro expansion on it, returning the result
+ of that process.
+\end_layout
+
+\begin_layout Subsubsection
+Bind, Lookup
+\end_layout
+
+\begin_layout Standard
+Bind takes an environment and merges its contents with the scope in question.
+ Lookup allows for the retrieval of symbols bound in the current scope.
+\end_layout
+
+\begin_layout Subsubsection
+Load, Repl
+\end_layout
+
+\begin_layout Standard
+High-level control of the interpreter.
+ Load evaluates the contents of a file in the current scope.
+ Repl connects to a reader and writer (typically stdin and stdout respectively)
+ and reads lines in, evaluates them and then prints them, until EOF.
+ Your basic interpreter loop.
 \end_layout
 
 \begin_layout Section
@@ -1057,8 +1196,8 @@ Go raised some consternation from some quarters when it was revealed because
  document is somewhat embarassed to reveal that Golisp currently handles
  errors in much the same way as exceptions.
  This is because a much more powerful notion, one that encompasses exceptions,
- breaks, continues and immediate returns, and whatever else the clever hacker
- can imagine, exists in Scheme.
+ breaks, continues and immediate returns, coroutines and whatever else the
+ clever hacker can imagine, exists in Scheme.
 \end_layout
 
 \begin_layout Standard
@@ -1067,7 +1206,15 @@ Errors are objects that are treated specially by the runtime.
  call chain.
  Primitives must handle error objects explicitly, in much the same way as
  errors in Go are normally handled.
- Failed(x) will return true if x is an error object.
+ 
+\family typewriter
+Failed(x)
+\family default
+ will return true if 
+\family typewriter
+x
+\family default
+ is an error object.
  The obvious thing to do with error objects is to return them immediately;
  Golisp provides mechanisms for handling errors within the language.
  This is your basic try-catch mechanism.
@@ -1104,6 +1251,10 @@ msg
 \emph on
 x
 \emph default
+ 
+\emph on
+type
+\emph default
 )
 \end_layout
 
@@ -1126,22 +1277,27 @@ thk hnd
 \begin_layout Standard
 Call thk, and if it results in an error, call hnd with the properties of
  the error.
- If an error was raised, split evaluates to the result of hnd, otherwise
- it evaluates to the result of thk.
- An error may be signalled in hnd (at which point, presumably, another handler
- would be invoked).
- The 
-\begin_inset Quotes eld
-\end_inset
-
-root
-\begin_inset Quotes erd
-\end_inset
-
- handler, as it were, prints the error's message, and then quits the program
- abnormally.
- The REPL installs a handler that simply prints the message and carries
- on.
+ If an error was raised, catch evaluates to the result of 
+\family typewriter
+hnd
+\family default
+, otherwise it evaluates to the result of 
+\family typewriter
+thk
+\family default
+.
+ An error may be signalled in 
+\family typewriter
+hnd
+\family default
+, at which point another handler further up the chain is invoked.
+ The handler for 
+\family typewriter
+load
+\family default
+ stops and rethrows the error object; it is up to the programmer to handle
+ abnormal termination.
+ The REPL installs a handler that simply prints the error and carries on.
 \end_layout
 
 \begin_layout LyX-Code

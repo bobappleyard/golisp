@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 	"bufio"
-	"strings"
+	"bytes"
 	"fmt"
 	"strconv"
 )
@@ -49,10 +49,13 @@ func Primitives() Environment {
 		// strings
 		"string-append": stringAppend,
 		"string->vector": strToVec,
+		"object->string": objToStr,
 		// pairs
 		"cons": Cons,
 		"car": Car,
 		"cdr": Cdr,
+		"set-car!": setCar,
+		"set-cdr!": setCdr,
 		"list->vector": lsToVec,
 		// vectors
 		"make-vector": makeVector,
@@ -102,7 +105,7 @@ func newMacro(m Any) Any {
 */
 
 func load(path, env Any) Any {
-	ctx, ok := env.(*Context)
+	ctx, ok := env.(*Scope)
 	if !ok { return TypeError("environment", env) }
 	p, ok := path.(string)
 	if !ok { return TypeError("string", path) }
@@ -110,7 +113,7 @@ func load(path, env Any) Any {
 }
 
 func eval(expr, env Any) Any {
-	ctx, ok := env.(*Context)
+	ctx, ok := env.(*Scope)
 	if !ok { return TypeError("environment", env) }
 	return ctx.Eval(expr)
 }
@@ -141,7 +144,7 @@ func catch(thk, hnd Any) Any {
 }
 
 func nullEnv() Any {
-	return NewContext(nil)
+	return NewScope(nil)
 }
 
 /*
@@ -235,89 +238,73 @@ func fixToFlo(_x Any) Any {
 	return TypeError("number", _x) 
 }
 
-func fixnumAdd(_a, _b Any) Any {
+func fixnumFunc(_a, _b Any, f func (a, b int) Any) Any {
 	a, ok := _a.(int)
 	if !ok { return TypeError("fixnum", _a) }
 	b, ok := _b.(int)
 	if !ok { return TypeError("fixnum", _b) }
-	return a + b
+	return f(a, b)
+}
+
+func fixnumAdd(_a, _b Any) Any {
+	return fixnumFunc(_a, _b, func(a, b int) Any { return a + b })
 }
 
 func fixnumSub(_a, _b Any) Any {
-	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
-	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
-	return a - b
+	return fixnumFunc(_a, _b, func(a, b int) Any { return a - b })
 }
 
 func fixnumMul(_a, _b Any) Any {
-	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
-	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
-	return a * b
+	return fixnumFunc(_a, _b, func(a, b int) Any { return a * b })
 }
 
 func fixnumDiv(_a, _b Any) Any {
-	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
-	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
-	if b == 0 { return Error("divide by zero") }
-	if a % b == 0 { return a / b }
-	return float(a) / float(b)
+	return fixnumFunc(_a, _b, func(a, b int) Any {
+		if b == 0 { return Error("divide by zero") }
+		if a % b == 0 { return a / b }
+		return float(a) / float(b)
+	})
 }
 
 func quotient(_a, _b Any) Any {
-	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
-	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
-	if b == 0 { return Error("divide by zero") }	
-	return a / b
+	return fixnumFunc(_a, _b, func(a, b int) Any {
+		if b == 0 { return Error("divide by zero") }	
+		return a / b
+	})
 }
 
 func modulo(_a, _b Any) Any {
-	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
-	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
-	if b == 0 { return Error("divide by zero") }
-	return a % b
+	return fixnumFunc(_a, _b, func(a, b int) Any {
+		if b == 0 { return Error("divide by zero") }
+		return a % b
+	})
+}
+
+func flonumFunc(_a, _b Any, f func(a, b float) Any) Any {
+	a, ok := _a.(float)
+	if !ok { return TypeError("flonum", _a) }
+	b, ok := _b.(float)
+	if !ok { return TypeError("flonum", _b) }
+	return f(a, b)
 }
 
 func flonumAdd(_a, _b Any) Any {
-	a, ok := _a.(float)
-	if !ok { return TypeError("flonum", _a) }
-	b, ok := _b.(float)
-	if !ok { return TypeError("flonum", _b) }
-	return a + b
+	return flonumFunc(_a, _b, func(a, b float) Any { return a + b })
 }
 
 func flonumSub(_a, _b Any) Any {
-	a, ok := _a.(float)
-	if !ok { return TypeError("flonum", _a) }
-	b, ok := _b.(float)
-	if !ok { return TypeError("flonum", _b) }
-	return a - b
+	return flonumFunc(_a, _b, func(a, b float) Any { return a - b })
 }
 
 func flonumMul(_a, _b Any) Any {
-	a, ok := _a.(float)
-	if !ok { return TypeError("flonum", _a) }
-	b, ok := _b.(float)
-	if !ok { return TypeError("flonum", _b) }
-	return a * b
+	return flonumFunc(_a, _b, func(a, b float) Any { return a * b })
 }
 
 func flonumDiv(_a, _b Any) Any {
-	a, ok := _a.(float)
-	if !ok { return TypeError("flonum", _a) }
-	b, ok := _b.(float)
-	if !ok { return TypeError("flonum", _b) }
-	if b == 0 { return Error("divide by zero") }
-	return a / b
+	return flonumFunc(_a, _b, func(a, b float) Any {
+		if b == 0 { return Error("divide by zero") }
+		return a / b
+	})
 }
 
 /*
@@ -335,11 +322,34 @@ func stringAppend(_a, _b Any) Any {
 func strToVec(str Any) Any {
 	s, ok := str.(string)
 	if !ok { return TypeError("string", str) }
-	rs := strings.Runes(s)
+	rs := bytes.Runes([]byte(s))
 	res := make(Vector, len(rs))
 	for i, x := range rs { res[i] = x }
 	return res
 }
+
+func objToStr(obj Any) Any {
+	return toWrite("%v", obj)
+}
+
+/*
+	Pairs
+*/
+
+func setCar(x, v Any) Any {
+	return pairFunc(x, func(p *Pair) Any { 
+		p.a = v
+		return nil
+	})
+}
+
+func setCdr(x, v Any) Any {
+	return pairFunc(x, func(p *Pair) Any { 
+		p.d = v
+		return nil
+	})
+}
+
 
 /*
 	Vectors
