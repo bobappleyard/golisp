@@ -38,26 +38,13 @@ var lex = lexer.RegexSet {
 	int(_COMMENT):		";[^\n]*",
 	int(_WS):			"\\s+",
 	int(_QUOTE):		"'|`|,|,@",
-	int(_SYMBOL):		"[^#\\(\\)\"\n\r\t\\[\\].'`,@ ]+",
+	int(_SYMBOL):		"[^#\\(\\)\"\n\r\t\\[\\]'`,@ ]+",
 	int(_HASH):			"#.",
 }
 
-func parseList(x interface{}) interface{} {
-	expr := x.([]interface{})
-	ls := expr[1].([]interface{})
-	var res Any = expr[2]
-	for i := len(ls) - 1; i >= 0; i-- {
-		x := ls[i]
-		if Failed(x) { return x }
-		res = Cons(x, res)
-	}
-	return res
-}
-
-var syntax = func() peg.Expr {
-	expr := peg.Extensible()
-	listEnd := peg.Bind(
-		peg.Option(peg.Select(peg.And { _DOT, expr }, 1)), 
+func listExpr(start, rec, end peg.Expr) peg.Expr {
+	tail := peg.Bind(
+		peg.Option(peg.Select(peg.And { _DOT, rec }, 1)),
 		func(x interface{}) interface{} {
 			o := x.([]interface{})
 			if len(o) != 0 {
@@ -66,26 +53,48 @@ var syntax = func() peg.Expr {
 			return EMPTY_LIST
 		},
 	)
+	inner := peg.Bind(
+		peg.Option(peg.And { peg.Multi(rec), tail }),
+		func(x interface{}) interface{} {
+			o := x.([]interface{})
+			if len(o) == 0 {
+				return EMPTY_LIST
+			}
+			expr := o[0].([]interface{})
+			ls := expr[0].([]interface{})
+			res := expr[1]
+			if Failed(res) { return res }
+			for i := len(ls) - 1; i >= 0; i-- {
+				x := ls[i]
+				if Failed(x) { return x }
+				res = Cons(x, res)
+			}
+			return res
+		},
+	)
+	return peg.Select(peg.And { start, inner, end }, 1)
+}
+
+var syntax = func() *peg.ExtensibleExpr {
+	expr := peg.Extensible()
 	expr.Add(peg.Or {
 		peg.Bind(_INT, func(x interface{}) interface{} { 
-			s := x.(string)
-			res, err := strconv.Atoi(s)
+			res, err := strconv.Atoi(x.(string))
 			if err != nil { return SystemError(err) }
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
-			s := x.(string)
-			res, err := strconv.Atof(s)
+			res, err := strconv.Atof(x.(string))
 			if err != nil { return SystemError(err) }
 			return res
 		}),
 		peg.Bind(_STR, func(x interface{}) interface{} { 
-			s, err := strconv.Unquote(x.(string))
+			res, err := strconv.Unquote(x.(string))
 			if err != nil { return SystemError(err) }
-			return s
+			return res
 		}),
-		peg.Bind(peg.And { _LSTART,	peg.Repeat(expr), listEnd, _LEND }, parseList),
-		peg.Bind(peg.And { _LSTART2, peg.Repeat(expr), listEnd, _LEND2 }, parseList),
+		listExpr(_LSTART, expr, _LEND),
+		listExpr(_LSTART2, expr, _LEND2),
 		peg.Bind(peg.And { _QUOTE, expr }, func(x interface{}) interface{} {
 			qu := x.([]interface{})
 			switch qu[0].(string) {
@@ -95,7 +104,9 @@ var syntax = func() peg.Expr {
 			}
 			return List(Symbol("unquote-splicing"), qu[1])
 		}),
-		peg.Bind(_SYMBOL, func(x interface{}) interface{} { return Symbol(x.(string)) }),
+		peg.Bind(_SYMBOL, func(x interface{}) interface{} {
+			return Symbol(x.(string))
+		}),
 		peg.Bind(_HASH, func(x interface{}) interface{} {
 			s := x.(string)
 			switch s[1] {
@@ -103,7 +114,7 @@ var syntax = func() peg.Expr {
 				case 'f': return false
 				case 't': return true
 			}
-			return SyntaxError("unknown constant: " + string(s[1]))
+			return SyntaxError("unknown hash syntax: " + s)
 		}),
 	})
 	return expr
@@ -127,11 +138,13 @@ func ReadLine(port Any) (string, os.Error) {
 func Read(port Any) Any {
 	pt, ok := port.(io.Reader)
 	if !ok { return TypeError("input-port", pt) }
-	if _, err := pt.Read([]byte{}); err == os.EOF { return EOF_OBJECT }
 	l := lexer.New()
 	l.Regexes(nil, lex)
 	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) && id != int(_COMMENT) })
-	m, d := syntax.Match(src)
+	m, d := peg.Or { 
+		syntax, 
+		peg.Bind(peg.Eof, func(x interface{}) interface{} { return EOF_OBJECT }),
+	}.Match(src)
 	if m.Failed() { return Throw(Symbol("syntax-error"), "failed to parse") }
 	return d	
 }

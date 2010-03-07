@@ -118,7 +118,7 @@ Hello world
 \end_layout
 
 \begin_layout Standard
-A minimal program, hello world might look something like this:
+A hello world might look something like this:
 \end_layout
 
 \begin_layout LyX-Code
@@ -133,6 +133,30 @@ n
 \end_inset
 
 )
+\end_layout
+
+\begin_layout Standard
+From this, we can see that strings have C-like syntax: they actually have
+ the syntax of Go strings.
+\end_layout
+
+\begin_layout Subsection
+Get started
+\end_layout
+
+\begin_layout Standard
+Start the interpreter.
+ You will be greeted with a prompt:
+\end_layout
+
+\begin_layout LyX-Code
+>
+\end_layout
+
+\begin_layout Standard
+This is asking you to type in an expression.
+ You will then get the result of evaluating that expression back.
+ Everything in Golisp is an expression.
 \end_layout
 
 \begin_layout Section
@@ -366,6 +390,14 @@ a
 \end_layout
 
 \begin_layout LyX-Code
+> ''a
+\end_layout
+
+\begin_layout LyX-Code
+(quote a)
+\end_layout
+
+\begin_layout LyX-Code
 > (+ 1 2)
 \end_layout
 
@@ -379,6 +411,14 @@ a
 
 \begin_layout LyX-Code
 (+ 1 2)
+\end_layout
+
+\begin_layout LyX-Code
+> (eval '(+ 1 2) (root-environment))
+\end_layout
+
+\begin_layout LyX-Code
+3
 \end_layout
 
 \begin_layout Subsubsection
@@ -532,11 +572,11 @@ This can be carried on indefinitely.
 
 \begin_layout LyX-Code
 (define (list .
- ls) ls)
+ xs) xs)
 \end_layout
 
 \begin_layout LyX-Code
-=> (define list (lambda ls ls))
+=> (define list (lambda xs xs))
 \end_layout
 
 \begin_layout LyX-Code

@@ -129,7 +129,7 @@ func WrapPrimitives(env map[string] interface{}) Environment {
 
 type errorStruct struct {
 	kind Symbol
-	msg string
+	msg Any
 }
 
 func (self *errorStruct) String() string {
@@ -137,7 +137,7 @@ func (self *errorStruct) String() string {
 }
 
 func (self *errorStruct) GoString() string {
-	return fmt.Sprintf("%v: %s", self.kind, self.msg)
+	return fmt.Sprintf("%v: %s", self.kind, toWrite("%v", self.msg))
 }
 
 func Throw(kind Symbol, msg string) os.Error {
@@ -417,7 +417,9 @@ func (self *Scope) Repl(in io.Reader, out io.Writer) {
 		s, err := ReadLine(in)
 		if err != nil { return err }
 		if strings.TrimSpace(s) == "" { return nil }
-		return ReadString(s)
+		res := ReadString(s)
+		if res == EOF_OBJECT { return nil }
+		return res
 	}
 	Display("> ", out)
 	for x := read(); x != EOF_OBJECT; x = read() {
