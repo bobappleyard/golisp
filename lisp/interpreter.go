@@ -5,314 +5,13 @@ import (
 	"io"
 	"os"
 	"strings"
-	"unsafe"
-	"./errors"
 )
 
 /*
-	Basic types
+	Interpreter related stuff
 */
 
-type Any interface{}
-
-type Symbol string
-
-func (self Symbol) GoString() string {
-	return string(self)
-}
-
-type Environment map[Symbol] Any
-
-type Constant struct { 
-	str string
-}
-
-func NewConstant(str string) Any {
-	return &Constant { str }
-}
-
-func (self *Constant) String() string {
-	return self.GoString()
-}
-
-func (self *Constant) GoString() string {
-	return self.str
-}
-
-// Anything except the boolean value false counts as true.
-func True(x Any) bool {
-	if b, ok := x.(bool); ok {
-		return b
-	}
-	return true
-}
-
-/*
-	Functions
-*/
-
-type Function interface {
-	Apply(args Any) Any
-}
-
-func Call(f Function, args... Any) Any {
-	return f.Apply(vecToLs(Vector(args)))
-}
-
-type Primitive func(args Any) Any
-
-func (self Primitive) Apply(args Any) Any {
-	return self(args)
-}
-
-func (self Primitive) String() string {
-	return self.GoString()
-}
-
-func (self Primitive) GoString() string {
-	return "#<primitive>"
-}
-
-// Takes a function, which can take anything from none to five lisp.Any and 
-// must return lisp.Any, and returns a function that can be called by the
-// lisp system. Returns nil if it fails to match, which I suppose is pretty
-// bad, really.
-func WrapPrimitive(_f interface{}) Function {
-	wrap := func(l int, f func(Vector) Any) Function {
-		var res Function
-		res = Primitive(func(args Any) Any {
-			as, ok := lsToVec(args).(Vector)
-			if !ok { return ArgumentError(res, args) }
-			if len(as) != l { return ArgumentError(res, args) }
-			return f(as)
-		})
-		return res
-	}
-	switch f := _f.(type) {
-		case func() Any: return wrap(0, func(args Vector) Any { 
-			return f() 
-		})
-		case func(a Any) Any: return wrap(1, func(args Vector) Any {
-			return f(args[0])
-		})
-		case func(a, b Any) Any: return wrap(2, func(args Vector) Any { 
-			return f(args[0], args[1])
-		})
-		case func(a, b, c Any) Any: return wrap(3, func(args Vector) Any { 
-			return f(args[0], args[1], args[2])
-		})
-		case func(a, b, c, d Any) Any: return wrap(4, func(args Vector) Any { 
-			return f(args[0], args[1], args[2], args[3])
-		})
-		case func(a, b, c, d, e  Any) Any: return wrap(5, func(args Vector) Any { 
-			return f(args[0], args[1], args[2], args[3], args[4])
-		})
-	}
-	errors.Fatal(os.ErrorString("invalid primitive function"))
-	return nil
-}
-
-// Takes a map, containing functions to be passed to WrapPrimitive. Returns 
-// an environment. Will crash the program if any fail to match. Consider 
-// yourself warned.
-func WrapPrimitives(env map[string] interface{}) Environment {
-	res := make(Environment)
-	for k, v := range env {
-		res[Symbol(k)] = WrapPrimitive(v)
-	}
-	return res
-}
-
-/*
-	Errors
-*/
-
-type errorStruct struct {
-	kind Symbol
-	msg Any
-}
-
-func (self *errorStruct) String() string {
-	return self.GoString()
-}
-
-func (self *errorStruct) GoString() string {
-	return fmt.Sprintf("%v: %s", self.kind, toWrite("%v", self.msg))
-}
-
-func Throw(kind Symbol, msg string) os.Error {
-	return &errorStruct { kind, msg }
-}
-
-func Error(msg string) os.Error {
-	return Throw(Symbol("error"), msg)
-}
-
-func TypeError(expected string, obj Any) os.Error {
-	return Throw(
-		Symbol("type-error"), 
-		fmt.Sprintf("expecting %s: %s", expected, toWrite("%#v", obj)),
-	)
-}
-
-func ArgumentError(f, args Any) os.Error {
-	msg := fmt.Sprintf("wrong number of arguments to %v: %#v", f, args)
-	return Throw(Symbol("argument-error"), msg)
-}
-
-func SystemError(err os.Error) os.Error {
-	return Throw(Symbol("system-error"), err.String())
-}
-
-func SyntaxError(err string) os.Error {
-	return Throw(Symbol("syntax-error"), err)
-}
-
-func Failed(x Any) bool {
-	_, failed := x.(*errorStruct)
-	return failed
-}
-
-/*
-	Pairs
-*/
-
-var EMPTY_LIST = NewConstant("()")
-
-type Pair struct { a, d Any }
-
-func (self *Pair) String() string {
-	if self.d == EMPTY_LIST {
-		return fmt.Sprintf("(%v)", self.a)
-	}
-	if d, ok := self.d.(*Pair); ok {
-		return fmt.Sprintf("(%v %v", self.a, d.String()[1:])
-	}
-	return fmt.Sprintf("(%v . %v)", self.a, self.d)
-}
-
-func (self *Pair) GoString() string {
-	if self.d == EMPTY_LIST {
-		return fmt.Sprintf("(%#v)", self.a)
-	}
-	if d, ok := self.d.(*Pair); ok {
-		return fmt.Sprintf("(%#v %v", self.a, d.GoString()[1:])
-	}
-	return fmt.Sprintf("(%#v . %#v)", self.a, self.d)
-}
-
-func Cons(a, d Any) Any {
-	return &Pair { a, d }
-}
-
-func pairFunc(x Any, f func(*Pair) Any) Any {
-	if Failed(x) { return x }
-	p, ok := x.(*Pair)
-	if !ok { return TypeError("pair", x) }
-	return f(p)
-}
-
-func Car(x Any) Any {
-	return pairFunc(x, func(p *Pair) Any { return p.a })
-}
-
-func Cdr(x Any) Any {
-	return pairFunc(x, func(p *Pair) Any { return p.d })
-}
-
-func List(xs... Any) Any {
-	return vecToLs(Vector(xs))
-}
-
-func ListLen(ls Any) int {
-	res := 0
-	for; ls != EMPTY_LIST; ls, res = Cdr(ls), res + 1 {
-		if Failed(ls) { return -1 }
-	}
-	return res
-}
-
-func ListTail(ls Any, idx int) Any {
-	for ; idx > 0; idx, ls = idx - 1, Cdr(ls) {
-		if Failed(ls) { return ls }
-	}
-	return ls
-}
-
-func ListRef(ls Any, idx int) Any {
-	return Car(ListTail(ls, idx))
-}
-
-/*
-	Vectors
-*/
-
-type Vector []Any
-
-func (self Vector) Get(i int) Any {
-	if i < 0 || i >= len(self) { 
-		return Error(fmt.Sprintf("invalid index (%v)", i))
-	}
-	return self[i]
-}
-
-func (self Vector) Set(i int, v Any) Any {
-	if i < 0 || i >= len(self) { 
-		return Error(fmt.Sprintf("invalid index (%v)", i))
-	}
-	self[i] = v
-	return nil
-}
-
-func (self Vector) String() string {
-	return self.GoString()
-}
-
-func (self Vector) GoString() string {
-	res := "#("
-	for _, x := range self {
-		res += fmt.Sprintf("%v ", x)
-	}
-	return res[0:len(res)-1] + ")"
-}
-
-/*
-	Custom types
-*/
-
-type Custom struct {
-	name Symbol
-	val Any
-}
-
-func NewCustom(name Symbol, val Any) *Custom {
-	return &Custom { name, val }
-}
-
-func (self *Custom) String() string {
-	return self.GoString()
-}
-
-func (self *Custom) GoString() string {
-	_, addr := unsafe.Reflect(self)
-	return fmt.Sprintf("#<%s: %x>", self.name, addr)
-}
-
-func (self *Custom) Name() Symbol {
-	return self.name
-}
-
-func (self *Custom) Get() Any {
-	return self.val
-}
-
-func (self *Custom) Set(val Any) {
-	self.val = val
-}
-
-/*
-	Evaluation related stuff
-*/
+var PreludePath = ""
 
 type Scope struct {
 	env Environment
@@ -339,13 +38,19 @@ func NewScope(parent *Scope) *Scope {
 }
 
 // Create a Scope that can be used as an interpreter.
-func New() *Scope {
+func New() (*Scope, os.Error) {
 	res := NewScope(nil)
 	res.Bind(Primitives())
 	res.Bind(WrapPrimitives(map[string] interface{} {
 		"root-environment": func() Any { return res },
 	}))
-	return res
+	if PreludePath != "" {
+		err := res.Load(PreludePath)
+		if err != nil {
+			return nil, err.(os.Error)
+		}
+	}
+	return res, nil
 }
 
 // Scopes
@@ -448,19 +153,15 @@ func (self *Scope) evalExpr(_x Any, tail *tailStruct) Any {
 func (self *Scope) evalPair(x *Pair, tail *tailStruct) Any {
 	switch n := x.a.(type) {
 		case Symbol: switch string(n) {
-			// core forms
+			// standard forms
 			case "quote": return Car(x.d)
-			case "if": {
-				test := self.evalExpr(ListRef(x.d, 0), nil)
-				if Failed(test) { return test }
-				if True(test) {
-					return self.evalExpr(ListRef(x.d, 1), tail)
-				} else {
-					return self.evalExpr(ListRef(x.d, 2), tail)
-				}
-			}
+			case "if": return self.evalIf(x.d, tail)
 			case "lambda": return &closure { self, Car(x.d), Cdr(x.d) }
-			case "set!": return self.mutate(Car(x.d), Car(Cdr(x.d)))
+			case "set!": {
+				v := self.evalExpr(Car(Cdr(x.d)), nil)
+				if Failed(v) { return v }
+				return self.mutate(Car(x.d), v)
+			}
 			case "define": return self.evalDefine(x.d)
 			case "begin": return self.evalBlock(x.d, tail)
 			case "local-environment": return self
@@ -482,18 +183,21 @@ func (self *Scope) lookupSym(x Symbol) Any {
 	return self.parent.lookupSym(x)
 }
 
+func (self *Scope) evalIf(expr Any, tail *tailStruct) Any {
+	test := self.evalExpr(ListRef(expr, 0), nil)
+	if Failed(test) { return test }
+	if True(test) { return self.evalExpr(ListRef(expr, 1), tail) }
+	return self.evalExpr(ListRef(expr, 2), tail)
+}
+
 func (self *Scope) mutate(_name, val Any) Any {
 	if self == nil {
 		return Error(fmt.Sprintf("unknown variable: %s", _name))
 	}
 	name, ok := _name.(Symbol)
-	if !ok {
-		return TypeError("symbol", _name)
-	}
+	if !ok { return TypeError("symbol", _name) }
 	_, ok = self.env[name]
-	if !ok {
-		return self.parent.mutate(_name, val)
-	}
+	if !ok { return self.parent.mutate(_name, val) }
 	self.env[name] = val
 	return nil
 }
@@ -592,9 +296,7 @@ func (self *Scope) expandDefinition(ls Any) Any {
 	return ls
 }
 
-/* 
-	Closures
-*/
+// Closures
 
 func (self *closure) String() string {
 	return self.GoString()
@@ -647,9 +349,7 @@ func (self *closure) bindArg(ctx *Scope, name, val Any) os.Error {
 	return nil
 }
 
-/*
-	Macros
-*/
+// Macros
 
 func (self *macro) String() string {
 	return self.GoString()

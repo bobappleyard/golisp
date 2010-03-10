@@ -29,7 +29,7 @@ func Primitives() Environment {
 		"null-environment": nullEnv,
 		// type system
 		"type-of": typeOf,
-		"define-custom-type": newCustom,
+		"define-type": newCustom,
 		// symbols
 		"symbol->string": symToStr,
 		"string->symbol": strToSym,
@@ -54,8 +54,6 @@ func Primitives() Environment {
 		"cons": Cons,
 		"car": Car,
 		"cdr": Cdr,
-		"set-car!": setCar,
-		"set-cdr!": setCdr,
 		"list->vector": lsToVec,
 		// vectors
 		"make-vector": makeVector,
@@ -66,6 +64,7 @@ func Primitives() Environment {
 		"vector->list": vecToLs,
 		"vector->string": vecToStr,
 		// ports
+		"open-file": openFile,
 		"read-char": readChar,
 		"read-byte": readByte,
 		"eof-object?": isEof,
@@ -127,7 +126,7 @@ func apply(f, args Any) Any {
 func throw(kind, msg Any) Any {
 	k, ok := kind.(Symbol)
 	if !ok { return TypeError("symbol", kind) }
-	return Throw(k, fmt.Sprintf("%v", msg))
+	return Throw(k, msg)
 }
 		
 func catch(thk, hnd Any) Any {
@@ -177,7 +176,7 @@ func newCustom(name, fn Any) Any {
 	if !ok { return TypeError("symbol", name) }
 	f, ok := fn.(Function)
 	if !ok { return TypeError("function", fn) }
-	wrap := WrapPrimitive(func(x Any) Any { return &Custom { n, x } })
+	wrap := WrapPrimitive(func(x Any) Any { return NewCustom(n, x) })
 	unwrap := WrapPrimitive(func(x Any) Any {
 		c, ok := x.(*Custom)
 		if !ok || c.name != n { return TypeError(string(n), x) }
@@ -333,25 +332,6 @@ func objToStr(obj Any) Any {
 }
 
 /*
-	Pairs
-*/
-
-func setCar(x, v Any) Any {
-	return pairFunc(x, func(p *Pair) Any { 
-		p.a = v
-		return nil
-	})
-}
-
-func setCdr(x, v Any) Any {
-	return pairFunc(x, func(p *Pair) Any { 
-		p.d = v
-		return nil
-	})
-}
-
-
-/*
 	Vectors
 */
 
@@ -438,6 +418,27 @@ func vecToStr(vec Any) Any {
 */
 
 var EOF_OBJECT = NewConstant("#eof-object")
+
+func openFile(path, mode Any) Any {
+	p, ok := path.(string)
+	if !ok { return TypeError("string", path) }
+	m, ok := mode.(Symbol)
+	if !ok { return TypeError("symbol", mode) }
+	wrap := func(x Any) Any { return bufio.NewWriter(x.(io.Writer)) }
+	filemode, perms := 0, 0
+	switch string(m) {
+		case "create": filemode, perms = os.O_CREAT, 0644
+		case "read": filemode, wrap = os.O_RDONLY, func(x Any) Any {
+			return bufio.NewReader(x.(io.Reader))
+		}
+		case "write": filemode = os.O_WRONLY
+		case "append": filemode = os.O_APPEND
+		default: return Error(fmt.Sprintf("wrong access token: %s", m))
+	}
+	f, err := os.Open(p, filemode, perms)
+	if err != nil { return SystemError(err) }
+	return wrap(f)
+}
 
 func readChar(port Any) Any {
 	p, ok := port.(*bufio.Reader)

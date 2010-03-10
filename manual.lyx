@@ -110,7 +110,7 @@ gli
 \family default
 .
  You can use this program to experiment with the language, or maybe even
- write programs in.
+ write programs for.
 \end_layout
 
 \begin_layout Subsection
@@ -138,6 +138,7 @@ n
 \begin_layout Standard
 From this, we can see that strings have C-like syntax: they actually have
  the syntax of Go strings.
+ Also, everything is surrounded by parentheses.
 \end_layout
 
 \begin_layout Subsection
@@ -157,6 +158,10 @@ Start the interpreter.
 This is asking you to type in an expression.
  You will then get the result of evaluating that expression back.
  Everything in Golisp is an expression.
+\end_layout
+
+\begin_layout Section
+Embedding Golisp
 \end_layout
 
 \begin_layout Section
@@ -760,7 +765,7 @@ s from to
 \begin_layout LyX-Code
 (string-fold 
 \emph on
-f init s
+f acc s
 \emph default
 )
 \end_layout
@@ -802,17 +807,35 @@ Lists
 \end_layout
 
 \begin_layout Standard
-Lists in Golisp are immutable.
+A 
+\emph on
+pair
+\emph default
+ is a container for two objects, the 
+\emph on
+car
+\emph default
+ and the 
+\emph on
+cdr
+\emph default
+.
+ A list is either the 
+\emph on
+empty list
+\emph default
+, or a pair with a list as the cdr.
+ Lists in Golisp are immutable.
 \end_layout
 
-\begin_layout LyX-Code
-; primitives
+\begin_layout Subsubsection
+Primitive Functions
 \end_layout
 
 \begin_layout LyX-Code
 (cons 
 \emph on
-a b
+a d
 \emph default
 )
 \end_layout
@@ -833,29 +856,8 @@ p
 )
 \end_layout
 
-\begin_layout LyX-Code
-(pair? 
-\emph on
-p
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-; library functions
-\end_layout
-
-\begin_layout LyX-Code
-(caar 
-\emph on
-p
-\emph default
-) ...
- (cddddr 
-\emph on
-p
-\emph default
-)
+\begin_layout Subsubsection
+General Manipulations
 \end_layout
 
 \begin_layout LyX-Code
@@ -864,14 +866,6 @@ p
 xs
 \emph default
  ...)
-\end_layout
-
-\begin_layout LyX-Code
-(null? 
-\emph on
-x
-\emph default
-)
 \end_layout
 
 \begin_layout LyX-Code
@@ -906,34 +900,22 @@ ls ...
 )
 \end_layout
 
+\begin_layout Subsubsection
+Predicates
+\end_layout
+
 \begin_layout LyX-Code
-(map 
+(pair? 
 \emph on
-f ls ...
+p
 \emph default
 )
 \end_layout
 
 \begin_layout LyX-Code
-(for-each 
+(null? 
 \emph on
-f ls ...
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-(filter 
-\emph on
-f l
-\emph default
-)
-\end_layout
-
-\begin_layout LyX-Code
-(fold 
-\emph on
-f i l
+x
 \emph default
 )
 \end_layout
@@ -942,6 +924,14 @@ f i l
 (list? 
 \emph on
 l
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(list=? 
+\emph on
+a b
 \emph default
 )
 \end_layout
@@ -970,6 +960,23 @@ l
 )
 \end_layout
 
+\begin_layout Subsubsection
+Selection
+\end_layout
+
+\begin_layout LyX-Code
+(caar 
+\emph on
+p
+\emph default
+) ...
+ (cddddr 
+\emph on
+p
+\emph default
+)
+\end_layout
+
 \begin_layout LyX-Code
 (list-ref 
 \emph on
@@ -992,6 +999,46 @@ l idx
 l idx
 \emph default
 )
+\end_layout
+
+\begin_layout LyX-Code
+(filter 
+\emph on
+f l
+\emph default
+)
+\end_layout
+
+\begin_layout Subsubsection
+Traversal
+\end_layout
+
+\begin_layout LyX-Code
+(map 
+\emph on
+f ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(for-each 
+\emph on
+f ls ...
+\emph default
+)
+\end_layout
+
+\begin_layout LyX-Code
+(fold 
+\emph on
+f acc l
+\emph default
+)
+\end_layout
+
+\begin_layout Subsubsection
+Conversion
 \end_layout
 
 \begin_layout LyX-Code
@@ -1139,11 +1186,11 @@ An environment provides a mapping from Symbols to arbitrary objects.
 \end_layout
 
 \begin_layout LyX-Code
-func NewScope(parent *Scope) *Scope
+func New() *Scope
 \end_layout
 
 \begin_layout LyX-Code
-func New() *Scope
+func NewScope(parent *Scope) *Scope
 \end_layout
 
 \begin_layout LyX-Code
@@ -1289,11 +1336,7 @@ msg
 \begin_layout LyX-Code
 (type-error 
 \emph on
-x
-\emph default
- 
-\emph on
-type
+type x
 \emph default
 )
 \end_layout

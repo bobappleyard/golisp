@@ -1,12 +1,14 @@
 package main
 
 import (
-	"./lisp";
-	"os";
+	"os"
+	"./lisp"
+	"./errors"
 )
 
 func main() {
-	i := lisp.New()
+	i, err := lisp.New()
+	errors.Fatal(err)
 	i.Repl(os.Stdin, os.Stdout)
 }
 
