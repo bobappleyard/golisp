@@ -27,6 +27,7 @@ func Primitives() Environment {
 		"throw": throw,
 		"catch": catch,
 		"null-environment": nullEnv,
+		"capture-environment": capEnv,
 		// type system
 		"type-of": typeOf,
 		"define-type": newCustom,
@@ -144,6 +145,12 @@ func catch(thk, hnd Any) Any {
 
 func nullEnv() Any {
 	return NewScope(nil)
+}
+
+func capEnv(env Any) Any {
+	e, ok := env.(*Scope)
+	if !ok { return TypeError("environment", env) }
+	return NewScope(e)
 }
 
 /*

@@ -79,9 +79,18 @@ func (self *Scope) Expand(x Any) Any {
 			switch string(s) {
 				case "quote": break
 				case "if": return Cons(p.a, self.expandList(p.d))
-				case "lambda": return Cons(p.a, Cons(Car(p.d), self.expandList(Cdr(p.d))))
+				case "lambda": {
+					ctx := NewScope(self)
+					return Cons(p.a, Cons(Car(p.d), ctx.expandList(Cdr(p.d))))
+				}
 				case "set!": return List(p.a, Car(p.d), self.Expand(Car(Cdr(p.d))))
 				case "define": return Cons(p.a, self.expandDefinition(p.d))
+				case "define-macro": {
+					expr := self.expandDefinition(p.d)
+					expr = List(Symbol("define"), Car(expr), Cons(Symbol("macro"), Cdr(expr)))
+					self.evalExpr(expr, nil)
+					return expr
+				}
 				case "begin": return Cons(p.a, self.expandList(p.d))
 			}
 			if e := self.lookupSym(s); !Failed(e) {
@@ -164,7 +173,6 @@ func (self *Scope) evalPair(x *Pair, tail *tailStruct) Any {
 			}
 			case "define": return self.evalDefine(x.d)
 			case "begin": return self.evalBlock(x.d, tail)
-			case "local-environment": return self
 			// otherwise fall through to a function call
 		}
 		case *Pair: // do nothing, it's handled below
@@ -202,8 +210,8 @@ func (self *Scope) mutate(_name, val Any) Any {
 	return nil
 }
 
-func (self *Scope) evalCall(_f, args Any, tail *tailStruct) Any {
-	if Failed(_f) { return _f }
+func (self *Scope) evalCall(f, args Any, tail *tailStruct) Any {
+	if Failed(f) { return f }
 	var argvals Any = EMPTY_LIST
 	p := new(Pair)
 	// evaluate the arguments
@@ -223,14 +231,14 @@ func (self *Scope) evalCall(_f, args Any, tail *tailStruct) Any {
 		p = next
 	}
 	// get the function
-	f, ok := _f.(Function)
-	if !ok { return TypeError("function", _f) }
+	fn, ok := f.(Function)
+	if !ok { return TypeError("function", f) }
 	// call it
 	if tail == nil {
-		return f.Apply(argvals)
+		return fn.Apply(argvals)
 	}
 	// in tail position
-	*(tail.f) = f
+	*(tail.f) = fn
 	*(tail.args) = argvals
 	return nil
 }
