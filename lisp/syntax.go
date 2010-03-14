@@ -120,7 +120,7 @@ var syntax = func() *peg.ExtensibleExpr {
 	return expr
 }()
 
-func ReadLine(port Any) (string, os.Error) {
+func ReadLine(port interface{}) (string, os.Error) {
 	pt, ok := port.(io.Reader)
 	if !ok { return "", TypeError("input-port", pt) }
 	buf := []byte{0}
@@ -135,44 +135,69 @@ func ReadLine(port Any) (string, os.Error) {
 	return res, nil
 }
 
-func Read(port Any) Any {
+func readExpr(expr peg.Expr, port interface{}) interface{} {
 	pt, ok := port.(io.Reader)
 	if !ok { return TypeError("input-port", pt) }
 	l := lexer.New()
 	l.Regexes(nil, lex)
 	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) && id != int(_COMMENT) })
-	m, d := peg.Or { 
-		syntax, 
-		peg.Bind(peg.Eof, func(x interface{}) interface{} { return EOF_OBJECT }),
-	}.Match(src)
-	if m.Failed() { return Throw(Symbol("syntax-error"), "failed to parse") }
+	m, d := expr.Match(src)
+	if m.Failed() { 
+		return Throw(
+			Symbol("syntax-error"), 
+			fmt.Sprintf("failed to parse (%d)", m.Pos()),
+		)
+	}
 	return d	
+
 }
 
-func ReadString(s string) Any {
+func Read(port interface{}) interface{} {
+	return readExpr(
+		peg.Or { 
+			syntax, 
+			peg.Bind(peg.Eof, func(x interface{}) interface{} { return EOF_OBJECT }),
+		},
+		port,
+	)
+}
+
+func ReadFile(port interface{}) interface{} {
+	return readExpr(
+		peg.Bind(peg.Repeat(syntax), func(x interface{}) interface{} {
+			return vecToLs(Vector(x.([]interface{})))
+		}),
+		port,
+	)
+}
+
+func ReadString(s string) interface{} {
 	return Read(strings.NewReader(s))
 }
 
-func toWrite(def string, obj Any) string {
+func toWrite(def string, obj interface{}) string {
 	if obj == nil { return "#v" }
-	if b, ok := obj.(bool); ok {
-		if b {
+	switch x := obj.(type) {
+		case bool: if x {
 			return "#t"
 		} else {
 			return "#f"
 		}
+		case io.ReadWriter: return "#<port>"
+		case io.Reader: return "#<input-port>"
+		case io.Writer: return "#<output-port>"
 	}
 	return fmt.Sprintf(def, obj)
 }
 
-func Write(obj, port Any) Any {
+func Write(obj, port interface{}) interface{} {
 	p, ok := port.(io.Writer)
 	if !ok { return TypeError("output-port", port) }
 	io.WriteString(p, toWrite("%#v", obj))
 	return nil
 }
 
-func Display(obj, port Any) Any {
+func Display(obj, port interface{}) interface{} {
 	p, ok := port.(io.Writer)
 	if !ok { return TypeError("output-port", port) }
 	io.WriteString(p, toWrite("%v", obj))

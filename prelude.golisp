@@ -1,0 +1,179 @@
+; primitive types
+(define (is? x t) (== (type-of x) t))
+(define (boolean? x) (is? x 'boolean))
+(define (fixnum? x) (is? x 'fixnum))
+(define (flonum? x) (is? x 'flonum))
+(define (number? x) (if (flonum? x) #t (fixnum? x)))
+(define (string? x) (is? x 'string))
+(define (symbol? x) (is? x 'symbol))
+(define (pair? x) (is? x 'pair))
+(define (vector? x) (is? x 'vector))
+(define (macro? x) (is? x 'macro))
+(define (function? x) (is? x 'function))
+(define (input-port? x) (if (is? x 'port) #t (is? x 'input-port)))
+(define (output-port? x) (if (is? x 'port) #t (is? x 'output-port)))
+
+;; basic stuff
+(define (not x) (if x #f #t))
+(define (null? x) (== x ()))
+(define (zero? x) (if (== x 0) #t (== x 0.0)))
+(define (list . xs) xs)
+(define ((const x) . _) x)
+(define void (const #v))
+(define (1- x) (fixnum-sub x 1))
+(define (1+ x) (fixnum-add x 1))
+(define ((compose f g) x) (f (g x)))
+(define ((curry f . first) . rest) (apply f (append first rest)))
+
+; list accessors
+(define   caar (compose car car))
+(define   cadr (compose car cdr))
+(define   cdar (compose cdr car))
+(define   cddr (compose cdr cdr))
+(define  caaar (compose car caar))
+(define  caadr (compose car cadr))
+(define  cadar (compose car cdar))
+(define  caddr (compose car cddr))
+(define  cdaar (compose cdr caar))
+(define  cdadr (compose cdr cadr))
+(define  cddar (compose cdr cdar))
+(define  cdddr (compose cdr cddr))
+(define caaaar (compose car caaar))
+(define caaadr (compose car caadr))
+(define caadar (compose car cadar))
+(define caaddr (compose car caddr))
+(define cadaar (compose car cdaar))
+(define cadadr (compose car cdadr))
+(define caddar (compose car cddar))
+(define cadddr (compose car cdddr))
+(define cdaaar (compose cdr caaar))
+(define cdaadr (compose cdr caadr))
+(define cdadar (compose cdr cadar))
+(define cdaddr (compose cdr caddr))
+(define cddaar (compose cdr cdaar))
+(define cddadr (compose cdr cdadr))
+(define cdddar (compose cdr cddar))
+(define cddddr (compose cdr cdddr))
+
+; list traversal
+(define (fold f acc l)
+  (if (null? l)
+    acc
+    (fold f (f (car l) acc) (cdr l))))
+
+(define (filter p l)
+  (define (f x acc) (if (p x) (cons x acc) acc))
+  (fold f () l))
+
+(define (map f l . ls)
+  (if (null? ls)
+    (reverse (fold (lambda (x acc) (cons (f x) acc)) () l))
+    (map (lambda (xs) (apply f xs)) (apply zip (cons l ls)))))
+
+(define (length l)
+  (fold (lambda (_ acc) (1+ acc)) 0 l))
+
+; list munging
+(define (reverse l)
+  (fold cons () l))
+  
+(define (zip l . ls)
+  (define (iter acc ls)
+    (if (null? (filter null? ls))
+      (iter (cons (map car ls) acc) (map cdr ls))
+      acc))
+  (reverse (iter () (cons l ls))))
+
+(define (append . ls)
+  (if (null? ls)
+    ()
+    (begin
+      (set! ls (reverse ls))
+      (fold (lambda (l acc) (fold cons acc (reverse l))) (car ls) (cdr ls)))))
+
+; backquote magic
+(define-macro (quasiquote tmplt)
+  (if (pair? tmplt)
+    (fold (lambda (cell acc)
+            (if (pair? cell)
+              (if (== (car cell) 'unquote)
+                (list 'cons (cadr cell) acc)
+                (if (== (car cell) 'unquote-splicing)
+                  (if (null? acc)
+                    (cadr cell)
+                    (list 'append (cadr cell) acc))
+                  (list 'cons (list 'quasiquote cell) acc)))
+              (list 'cons (list 'quote cell) acc)))
+          ()
+          (reverse tmplt))
+    (list 'quote tmplt)))
+
+; main macro set
+(define-macro (let bs . b)
+  (define (named-let name bs b)
+    `(letrec ([,name (lambda ,(map car bs) ,@b)])
+      (,name ,@(map cadr bs))))
+  (if (pair? bs)
+    `((lambda ,(map car bs) ,@b) ,@(map cadr bs))
+    (named-let bs (car bs) (cdr bs))))
+
+(define-macro (let* bs . b)
+  (fold (lambda (x acc) `(let (,x) ,acc))
+        `(begin ,@b)
+        (reverse bs)))
+
+(define-macro (letrec bs . b)
+  `((lambda ()
+    ,@(map (lambda (n v) `(define ,n ,v))
+           (map car bs)
+           (map cadr bs))
+    ,@b)))
+
+(define-macro (and . cs)
+  (if (null? cs)
+    #t
+    (if (null? (cdr cs))
+      (car cs)
+      `(if ,(car cs)
+        (and ,@(cdr cs))
+        #f))))
+
+(define-macro (or . cs)
+  (define-gensyms val)
+  (if (null? cs)
+    #f
+    `(let ([,val ,(car cs)])
+      (if ,val
+        ,val
+        (or ,@(cdr cs))))))
+
+(define-macro (cond . cs)
+  (if (null? cs)
+    #v
+    (let ([c (car cs)])
+      (define-gensyms val)
+      (if (== (car c) 'else)
+        `(begin ,@(cdr c))
+        (if (== (cadr c) '=>)
+          `(let ([,val ,(car c)])
+            (if ,val
+              (,(caddr c) ,val)
+              (cond ,@(cdr cs)))))
+          `(if ,(car c)
+            (begin ,@(cdr c))
+            (cond ,@(cdr cs)))))))
+
+(define-macro (do vars test . cmds)
+  (define-gensyms loop)
+  `(let ,loop ,(map (lambda (var) `[,(car var) ,(cadr var)]) vars)
+    (if ,(car test)
+      (begin
+        ,@(cdr test))
+      (begin
+        ,@cmds
+        (,loop ,@(map (lambda (var)
+                        (if (null? (cddr var))
+                          (car var)
+                          (caddr var)))
+                      vars))))))
+
