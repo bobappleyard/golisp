@@ -1,12 +1,14 @@
 package lisp
 
 import (
-	"io"
-	"os"
+	"big"
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
+	"strings"
 )
 
 // All of the primitive functions defined by the library.
@@ -16,6 +18,7 @@ func Primitives() Environment {
 		"==": eq,
 		// syntax
 		"read": Read,
+		"read-file": ReadFile,
 		"read-string": readStr,
 		"write": Write,
 		"display": Display,
@@ -48,7 +51,8 @@ func Primitives() Environment {
 		"flonum-mul": flonumMul,
 		"flonum-div": flonumDiv,
 		// strings
-		"string-append": stringAppend,
+		"string-split": stringSplit,
+		"string-join": stringJoin,
 		"string->vector": strToVec,
 		"object->string": objToStr,
 		// pairs
@@ -158,7 +162,7 @@ func capEnv(env interface{}) interface{} {
 */
 
 func typeOf(x interface{}) interface{} {
-	s := "interface{}"
+	s := "unknown"
 	switch x.(type) {
 		case bool: s = "boolean"
 		case int: s = "fixnum"
@@ -173,6 +177,7 @@ func typeOf(x interface{}) interface{} {
 		case io.Reader: s = "input-port"
 		case io.Writer: s = "output-port"
 		case *Custom: return x.(*Custom).Name()
+		case *big.Int: s = "bignum"
 	}
 	if x == nil { s = "void" }
 	return Symbol(s)
@@ -183,7 +188,9 @@ func newCustom(name, fn interface{}) interface{} {
 	if !ok { return TypeError("symbol", name) }
 	f, ok := fn.(Function)
 	if !ok { return TypeError("function", fn) }
-	wrap := WrapPrimitive(func(x interface{}) interface{} { return NewCustom(n, x) })
+	wrap := WrapPrimitive(func(x interface{}) interface{} { 
+		return NewCustom(n, x) 
+	})
 	unwrap := WrapPrimitive(func(x interface{}) interface{} {
 		c, ok := x.(*Custom)
 		if !ok || c.name != n { return TypeError(string(n), x) }
@@ -317,12 +324,30 @@ func flonumDiv(_a, _b interface{}) interface{} {
 	Strings
 */
 
-func stringAppend(_a, _b interface{}) interface{} {
-	a, ok := _a.(string)
-	if !ok { return TypeError("string", _a) }
-	b, ok := _b.(string)
-	if !ok { return TypeError("string", _b) }
-	return a + b
+func stringSplit(str, sep interface{}) interface{} {
+	s, ok := str.(string)
+	if !ok { return TypeError("string", str) }
+	b, ok := sep.(string)
+	if !ok { return TypeError("string", sep) }
+	ss := strings.Split(s, b, 0)
+	res := EMPTY_LIST
+	for i := len(ss) - 1; i >= 0; i-- {
+		res = Cons(ss[i], res)
+	}
+	return res
+}
+
+func stringJoin(strs, sep interface{}) interface{} {
+	ss := make([]string, ListLen(strs))
+	b, ok := sep.(string)
+	if !ok { return TypeError("string", sep) }
+	for cur, i := strs, 0; cur != EMPTY_LIST; cur, i = Cdr(cur), i + 1 {
+		x := Car(cur)
+		s, ok := x.(string)
+		if !ok { return TypeError("string", x) }
+		ss[i] = s
+	}
+	return strings.Join(ss, b)
 }
 
 func strToVec(str interface{}) interface{} {

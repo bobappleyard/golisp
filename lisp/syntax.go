@@ -1,6 +1,7 @@
 package lisp
 
 import (
+	"big"
 	"io"
 	"os"
 	"fmt"
@@ -79,8 +80,14 @@ var syntax = func() *peg.ExtensibleExpr {
 	expr := peg.Extensible()
 	expr.Add(peg.Or {
 		peg.Bind(_INT, func(x interface{}) interface{} { 
-			res, err := strconv.Atoi(x.(string))
-			if err != nil { return SystemError(err) }
+			s := x.(string)
+			res, err := strconv.Atoi(s)
+			if err != nil { 
+				num := big.NewInt(0)
+				_, ok := num.SetString(s, 10)
+				if !ok { return SystemError(err) }
+				return num
+			}
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
@@ -97,12 +104,14 @@ var syntax = func() *peg.ExtensibleExpr {
 		listExpr(_LSTART2, expr, _LEND2),
 		peg.Bind(peg.And { _QUOTE, expr }, func(x interface{}) interface{} {
 			qu := x.([]interface{})
+			s := ""
 			switch qu[0].(string) {
-				case "'": return List(Symbol("quote"), qu[1])
-				case "`": return List(Symbol("quasiquote"), qu[1])
-				case ",": return List(Symbol("unquote"), qu[1])
+				case "'": s = "quote"
+				case "`": s = "quasiquote"
+				case ",": s = "unquote"
+				case ",@": s = "unquote-splicing"
 			}
-			return List(Symbol("unquote-splicing"), qu[1])
+			return List(Symbol(s), qu[1])
 		}),
 		peg.Bind(_SYMBOL, func(x interface{}) interface{} {
 			return Symbol(x.(string))
@@ -136,11 +145,13 @@ func ReadLine(port interface{}) (string, os.Error) {
 }
 
 func readExpr(expr peg.Expr, port interface{}) interface{} {
-	pt, ok := port.(io.Reader)
-	if !ok { return TypeError("input-port", pt) }
+	p, ok := port.(io.Reader)
+	if !ok { return TypeError("input-port", port) }
 	l := lexer.New()
 	l.Regexes(nil, lex)
-	src := peg.NewLex(pt, l, func(id int) bool { return id != int(_WS) && id != int(_COMMENT) })
+	src := peg.NewLex(p, l, func(id int) bool { 
+		return id != int(_WS) && id != int(_COMMENT) 
+	})
 	m, d := expr.Match(src)
 	if m.Failed() { 
 		return Throw(
@@ -164,9 +175,12 @@ func Read(port interface{}) interface{} {
 
 func ReadFile(port interface{}) interface{} {
 	return readExpr(
-		peg.Bind(peg.Repeat(syntax), func(x interface{}) interface{} {
-			return vecToLs(Vector(x.([]interface{})))
-		}),
+		peg.Select(peg.And {
+			peg.Bind(peg.Repeat(syntax), func(x interface{}) interface{} {
+				return vecToLs(Vector(x.([]interface{})))
+			}),
+			peg.Eof,
+		}, 0),
 		port,
 	)
 }
@@ -183,6 +197,7 @@ func toWrite(def string, obj interface{}) string {
 		} else {
 			return "#f"
 		}
+		case *big.Int: return x.String()
 		case io.ReadWriter: return "#<port>"
 		case io.Reader: return "#<input-port>"
 		case io.Writer: return "#<output-port>"

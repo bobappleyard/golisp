@@ -182,7 +182,7 @@ func (self *Pair) toWrite(def string) string {
 		return fmt.Sprintf("(%s)", toWrite(def, self.a))
 	}
 	if d, ok := self.d.(*Pair); ok {
-		return fmt.Sprintf("(%s %s", toWrite(def, self.a), d.String()[1:])
+		return fmt.Sprintf("(%s %s", toWrite(def, self.a), toWrite(def, d)[1:])
 	}
 	return fmt.Sprintf("(%s . %s)", toWrite(def, self.a), toWrite(def, self.d))
 }

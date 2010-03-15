@@ -46,9 +46,7 @@ func New() (*Scope, os.Error) {
 	}))
 	if PreludePath != "" {
 		err := res.Load(PreludePath)
-		if err != nil {
-			return nil, err.(os.Error)
-		}
+		if err != nil { return nil, err }
 	}
 	return res, nil
 }
@@ -64,8 +62,7 @@ func (self *Scope) GoString() string {
 }
 
 func (self *Scope) Eval(x interface{}) interface{} {
-	expr := self.Expand(x)
-	return self.evalExpr(expr, nil)
+	return self.evalExpr(self.Expand(x), nil)
 }
 
 func (self *Scope) EvalString(x string) interface{} {
@@ -77,7 +74,7 @@ func (self *Scope) Expand(x interface{}) interface{} {
 		p, ok := x.(*Pair); if !ok { break }
 		if s, ok := p.a.(Symbol); ok {
 			switch string(s) {
-				case "quote": break
+				case "quote": return x
 				case "if": return Cons(p.a, self.expandList(p.d))
 				case "lambda": {
 					ctx := NewScope(self)

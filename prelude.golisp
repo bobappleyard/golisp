@@ -2,8 +2,9 @@
 (define (is? x t) (== (type-of x) t))
 (define (boolean? x) (is? x 'boolean))
 (define (fixnum? x) (is? x 'fixnum))
+(define (bignum? x) (is? x 'bignum))
 (define (flonum? x) (is? x 'flonum))
-(define (number? x) (if (flonum? x) #t (fixnum? x)))
+(define (number? x) (if (fixnum? x) #t (if (flonum? x) #t (bignum? x))))
 (define (string? x) (is? x 'string))
 (define (symbol? x) (is? x 'symbol))
 (define (pair? x) (is? x 'pair))
@@ -13,7 +14,8 @@
 (define (input-port? x) (if (is? x 'port) #t (is? x 'input-port)))
 (define (output-port? x) (if (is? x 'port) #t (is? x 'output-port)))
 
-;; basic stuff
+; basic stuff
+(define (object->boolean x) (if x #t #f))
 (define (not x) (if x #f #t))
 (define (null? x) (== x ()))
 (define (zero? x) (if (== x 0) #t (== x 0.0)))
@@ -24,6 +26,21 @@
 (define (1+ x) (fixnum-add x 1))
 (define ((compose f g) x) (f (g x)))
 (define ((curry f . first) . rest) (apply f (append first rest)))
+(define (pred->guard p) (lambda (x) (if (p x) x #f)))
+(define (guard->pred g) (lambda (x) (object->boolean (g x))))
+
+; strings
+(define string->list (compose vector->list string->vector))
+(define list->string (compose vector->string list->vector))
+
+(define (substring s start end) 
+  (vector->string (vector-slice (string->vector s) start end)))
+
+(define (string-ref s idx)
+  (substring s idx (1+ idx)))
+
+(define (string-append . ss)
+  (string-join ss ""))
 
 ; list accessors
 (define   caar (compose car car))
@@ -108,6 +125,16 @@
           (reverse tmplt))
     (list 'quote tmplt)))
 
+; aux macros
+(define-macro (define-gensyms . ss)
+  `(begin ,@(map (lambda (s) `(define ,s (gensym))) ss)))
+
+(define-macro (when t . b)
+  `(if ,t (begin ,@b) #v))
+  
+(define-macro (unless t . b)
+  `(when (not ,t) ,@b))
+
 ; main macro set
 (define-macro (let bs . b)
   (define (named-let name bs b)
@@ -148,8 +175,7 @@
         (or ,@(cdr cs))))))
 
 (define-macro (cond . cs)
-  (if (null? cs)
-    #v
+  (unless (null? cs)
     (let ([c (car cs)])
       (define-gensyms val)
       (if (== (car c) 'else)
@@ -176,4 +202,26 @@
                           (car var)
                           (caddr var)))
                       vars))))))
+
+; fix some of the primitive functions
+(define-macro (define-wrapped head . body)
+  (if (pair? head)
+    `(define-wrapped ,(car head) (lambda ,(cdr head) ,@body))
+    `(define ,head (let ([,head ,head]) ,@body))))
+
+(define-wrapped (apply f . arglst)
+  (set! arglst (reverse arglst))
+  (apply f (fold cons (car arglst) (cdr arglst))))
+  
+(define-wrapped (eval expr . env)
+  (eval expr (if (null? env)
+               (root-environment)
+               (car env))))
+
+(define-wrapped (load file . env)
+  (load file (if (null? env)
+               (root-environment)
+               (car env))))
+
+
 
