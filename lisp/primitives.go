@@ -2,7 +2,6 @@ package lisp
 
 import (
 	"big"
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -31,6 +30,7 @@ func Primitives() Environment {
 		"catch": catch,
 		"null-environment": nullEnv,
 		"capture-environment": capEnv,
+		"start-process": startProc,
 		// type system
 		"type-of": typeOf,
 		"define-type": newCustom,
@@ -44,8 +44,9 @@ func Primitives() Environment {
 		"fixnum-sub": fixnumSub,
 		"fixnum-mul": fixnumMul,
 		"fixnum-div": fixnumDiv,
-		"fixnum-quotient": quotient,
-		"fixnum-modulo": modulo,
+		"quotient": fixnumQuotient,
+		"remainder": fixnumRemainder,
+		"modulo": fixnumModulo,
 		"flonum-add": flonumAdd,
 		"flonum-sub": flonumSub,
 		"flonum-mul": flonumMul,
@@ -76,7 +77,7 @@ func Primitives() Environment {
 		"write-string": writeString,
 		"write-byte": writeByte,
 		"flush": flush,
-		"close-port": closePort,
+		"close": closePort,
 	})
 }
 
@@ -155,6 +156,25 @@ func capEnv(env interface{}) interface{} {
 	e, ok := env.(*Scope)
 	if !ok { return TypeError("environment", env) }
 	return NewScope(e)
+}
+
+func startProc(path, args interface{}) interface{} {
+	p, ok := path.(string)
+	if !ok { return TypeError("string", path) }
+	argv := make([]string, ListLen(args))
+	for cur, i := args, 0; cur != EMPTY_LIST; cur, i = Cdr(cur), i + 1 {
+		x := Car(cur)
+		s, ok := x.(string)
+		if !ok { return TypeError("string", x) }
+		argv[i] = s
+	}
+	inr, inw, err := os.Pipe()
+	if err != nil { return SystemError(err) }
+	outr, outw, err := os.Pipe()
+	if err != nil { return SystemError(err) }
+	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
+	if err != nil { return SystemError(err) }
+	return Cons(inw, outr)
 }
 
 /*
@@ -279,17 +299,28 @@ func fixnumDiv(_a, _b interface{}) interface{} {
 	})
 }
 
-func quotient(_a, _b interface{}) interface{} {
+func fixnumQuotient(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
 		if b == 0 { return Error("divide by zero") }	
 		return a / b
 	})
 }
 
-func modulo(_a, _b interface{}) interface{} {
+func fixnumRemainder(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
 		if b == 0 { return Error("divide by zero") }
 		return a % b
+	})
+}
+
+func fixnumModulo(_a, _b interface{}) interface{} {
+	return fixnumFunc(_a, _b, func(a, b int) interface{} {
+		if b == 0 { return Error("divide by zero") }
+		r := a % b
+		if !(r == 0 || (a > 0 && b > 0) || (a < 0 && b < 0)) {
+			r += b
+		}
+		return r
 	})
 }
 
@@ -456,12 +487,12 @@ func openFile(path, mode interface{}) interface{} {
 	if !ok { return TypeError("string", path) }
 	m, ok := mode.(Symbol)
 	if !ok { return TypeError("symbol", mode) }
-	wrap := func(x interface{}) interface{} { return bufio.NewWriter(x.(io.Writer)) }
+	wrap := func(x interface{}) interface{} { return NewOutput(x.(io.Writer)) }
 	filemode, perms := 0, 0
 	switch string(m) {
 		case "create": filemode, perms = os.O_CREAT, 0644
 		case "read": filemode, wrap = os.O_RDONLY, func(x interface{}) interface{} {
-			return bufio.NewReader(x.(io.Reader))
+			return NewInput(x.(io.Reader))
 		}
 		case "write": filemode = os.O_WRONLY
 		case "append": filemode = os.O_APPEND
@@ -473,9 +504,9 @@ func openFile(path, mode interface{}) interface{} {
 }
 
 func readChar(port interface{}) interface{} {
-	p, ok := port.(*bufio.Reader)
+	p, ok := port.(*InputPort)
 	if !ok { return TypeError("input-port", port) }
-	r, _, err := p.ReadRune()
+	r, err := p.ReadChar()
 	if err != nil {
 		if err == os.EOF { return EOF_OBJECT }
 		return SystemError(err)
@@ -484,15 +515,14 @@ func readChar(port interface{}) interface{} {
 }
 
 func readByte(port interface{}) interface{} {	
-	p, ok := port.(io.Reader)
+	p, ok := port.(*InputPort)
 	if !ok { return TypeError("input-port", port) }
-	buf := make([]byte, 1)
-	_, err := p.Read(buf); 		
+	b, err := p.ReadByte()
 	if err != nil { 
 		if err == os.EOF { return EOF_OBJECT }
 		return SystemError(err)
 	}
-	return int(buf[0])
+	return int(b)
 }
 
 func isEof(x interface{}) interface{} {
@@ -500,27 +530,27 @@ func isEof(x interface{}) interface{} {
 }
 
 func writeString(port, str interface{}) interface{} {
-	p, ok := port.(*bufio.Writer)
+	p, ok := port.(*OutputPort)
 	if !ok { return TypeError("output-port", port) }
 	s, ok := str.(string)
 	if !ok { return TypeError("string", str) }
-	_, err := p.WriteString(s)
+	err := p.WriteString(s)
 	if err != nil { return SystemError(err) }
 	return nil
 }
 
 func writeByte(port, bte interface{}) interface{} {	
-	p, ok := port.(io.Writer)
+	p, ok := port.(*OutputPort)
 	if !ok { return TypeError("output-port", port) }
 	b, ok := bte.(int)
 	if !ok { return TypeError("fixnum", bte) }
-	_, err := p.Write([]byte { byte(b) })
+	err := p.WriteByte(byte(b))
 	if err != nil { return SystemError(err) }
 	return nil
 }
 
 func flush(port interface{}) interface{} {
-	p, ok := port.(*bufio.Writer)
+	p, ok := port.(*OutputPort)
 	if !ok { return TypeError("output-port", port) }
 	err := p.Flush()
 	if err != nil { return SystemError(err) }
@@ -529,7 +559,7 @@ func flush(port interface{}) interface{} {
 
 func closePort(port interface{}) interface{} {
 	p, ok := port.(io.Closer)
-	if !ok { return TypeError("output-port", port) }
+	if !ok { return TypeError("port", port) }
 	err := p.Close()
 	if err != nil { return SystemError(err) }
 	return nil

@@ -114,8 +114,9 @@ func (self *Scope) Lookup(x string) interface{} {
 }
 
 func (self *Scope) Load(path string) os.Error {
-	src, err := os.Open(path, os.O_RDONLY, 0)
+	_src, err := os.Open(path, os.O_RDONLY, 0)
 	if err != nil { return SystemError(err) }
+	src := NewInput(_src)
 	exprs := ReadFile(src)
 	if Failed(exprs) { return exprs.(os.Error) }
 	for cur := exprs; cur != EMPTY_LIST; cur = Cdr(cur) {
@@ -126,16 +127,22 @@ func (self *Scope) Load(path string) os.Error {
 }
 
 func (self *Scope) Repl(in io.Reader, out io.Writer) {
+	inp := NewInput(in)
+	in = inp
 	read := func() interface{} {
-		s, err := ReadLine(in)
+		s, err := inp.ReadLine()
 		if err != nil { return err }
 		if strings.TrimSpace(s) == "" { return nil }
 		res := ReadString(s)
 		if res == EOF_OBJECT { return nil }
 		return res
 	}
+	self.Bind(WrapPrimitives(map[string] interface{} {
+		"standard-input": func() interface{} { return in },
+		"standard-output": func() interface{} { return out },
+	}))
 	Display("> ", out)
-	for x := read(); x != EOF_OBJECT; x = read() {
+	for x := read(); !inp.Eof(); x = read() {
 		x = self.Eval(x)
 		if x != nil {
 			Write(x, out)

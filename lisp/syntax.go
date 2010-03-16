@@ -3,7 +3,6 @@ package lisp
 import (
 	"big"
 	"io"
-	"os"
 	"fmt"
 	"strings"
 	"strconv"
@@ -17,6 +16,7 @@ const (
 	_LEND
 	_LSTART2
 	_LEND2
+	_VSTART
 	_INT
 	_FLOAT
 	_STR
@@ -33,8 +33,9 @@ var lex = lexer.RegexSet {
 	int(_LEND):			"\\)",
 	int(_LSTART2): 		"\\[",
 	int(_LEND2):		"\\]",
-	int(_INT):			"\\d+",
-	int(_FLOAT):		"\\d+(\\.\\d+)?",
+	int(_VSTART):		"#\\(",
+	int(_INT):			"-?\\d+",
+	int(_FLOAT):		"-?\\d+(\\.\\d+)?",
 	int(_STR):			"\"([^\"]|\\.)*\"",
 	int(_COMMENT):		";[^\n]*",
 	int(_WS):			"\\s+",
@@ -102,6 +103,12 @@ var syntax = func() *peg.ExtensibleExpr {
 		}),
 		listExpr(_LSTART, expr, _LEND),
 		listExpr(_LSTART2, expr, _LEND2),
+		peg.Bind(	
+			peg.Select(peg.And { _VSTART, peg.Repeat(expr), _LEND }, 1),
+			func(x interface{}) interface{} {
+				return Vector(x.([]interface{}))
+			},
+		),
 		peg.Bind(peg.And { _QUOTE, expr }, func(x interface{}) interface{} {
 			qu := x.([]interface{})
 			s := ""
@@ -129,24 +136,10 @@ var syntax = func() *peg.ExtensibleExpr {
 	return expr
 }()
 
-func ReadLine(port interface{}) (string, os.Error) {
-	pt, ok := port.(io.Reader)
-	if !ok { return "", TypeError("input-port", pt) }
-	buf := []byte{0}
-	res := ""
-	for {
-		_, err := pt.Read(buf)
-		if err == os.EOF { return "", EOF_OBJECT.(os.Error) }
-		if err != nil { return "", SystemError(err) }
-		if buf[0] == '\n' { break }
-		res += string(buf)
-	}
-	return res, nil
-}
-
 func readExpr(expr peg.Expr, port interface{}) interface{} {
-	p, ok := port.(io.Reader)
+	p, ok := port.(*InputPort)
 	if !ok { return TypeError("input-port", port) }
+	if p.Eof() { return EOF_OBJECT }
 	l := lexer.New()
 	l.Regexes(nil, lex)
 	src := peg.NewLex(p, l, func(id int) bool { 
@@ -159,7 +152,7 @@ func readExpr(expr peg.Expr, port interface{}) interface{} {
 			fmt.Sprintf("failed to parse (%d)", m.Pos()),
 		)
 	}
-	return d	
+	return d
 
 }
 
@@ -186,7 +179,7 @@ func ReadFile(port interface{}) interface{} {
 }
 
 func ReadString(s string) interface{} {
-	return Read(strings.NewReader(s))
+	return Read(NewInput(strings.NewReader(s)))
 }
 
 func toWrite(def string, obj interface{}) string {
@@ -198,9 +191,8 @@ func toWrite(def string, obj interface{}) string {
 			return "#f"
 		}
 		case *big.Int: return x.String()
-		case io.ReadWriter: return "#<port>"
-		case io.Reader: return "#<input-port>"
-		case io.Writer: return "#<output-port>"
+		case *InputPort: return "#<input-port>"
+		case *OutputPort: return "#<output-port>"
 	}
 	return fmt.Sprintf(def, obj)
 }

@@ -1,7 +1,9 @@
 package lisp
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"unsafe"
 	"./errors"
@@ -283,6 +285,117 @@ func (self Vector) String() string {
 
 func (self Vector) GoString() string {
 	return self.toWrite("%#v")
+}
+
+/*
+	Ports
+*/
+var portClosed = os.ErrorString("port closed")
+
+type InputPort struct {
+	eof bool
+	ref io.Reader
+	r *bufio.Reader
+}
+
+func NewInput(r io.Reader) *InputPort {
+	return &InputPort { false, r, bufio.NewReader(r) }
+}
+
+func (self *InputPort) Read(bs []byte) (int, os.Error) {
+	if self.r == nil { return 0, portClosed }
+	if self.eof { return 0, os.EOF }
+	l, err := self.r.Read(bs)
+	self.eof = err == os.EOF
+	return l, err
+}
+
+func (self *InputPort) ReadChar() (int, os.Error) {
+	if self.r == nil { return 0, portClosed }
+	if self.eof { return 0, os.EOF }
+	res, _, err := self.r.ReadRune()
+	self.eof = err == os.EOF
+	return res, err
+}
+
+func (self *InputPort) ReadByte() (byte, os.Error) {
+	if self.r == nil { return 0, portClosed }
+	if self.eof { return 0, os.EOF }
+	bs := []byte { 0 }
+	_, err := self.Read(bs)
+	self.eof = err == os.EOF
+	return bs[0], err
+}
+
+func (self *InputPort) ReadLine() (string, os.Error) {
+	if self.r == nil { return "", portClosed }
+	if self.eof { return "", os.EOF }
+	res := ""
+	for {
+		b, err := self.ReadChar()
+		if err == os.EOF { 
+			self.eof = true
+			break
+		}
+		if err != nil { return "", err }
+		if b == '\n' { break }
+		res += string(b)
+	}
+	return res, nil
+}
+
+func (self *InputPort) Close() os.Error {
+	if self.r == nil { return portClosed }
+	self.r = nil
+	if c, ok := self.ref.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+func (self *InputPort) Eof() bool {
+	return self.eof
+}
+
+type OutputPort struct {
+	ref io.Writer
+	w *bufio.Writer
+}
+
+func NewOutput(w io.Writer) *OutputPort {
+	return &OutputPort { w, bufio.NewWriter(w) }
+}
+
+func (self *OutputPort) Write(bs []byte) (int, os.Error) {
+	if self.w == nil { return 0, portClosed }
+	return self.w.Write(bs)
+}
+
+func (self *OutputPort) WriteString(str string) os.Error {
+	if self.w == nil { return portClosed }
+	_, err := self.w.WriteString(str)
+	return err
+}
+
+func (self *OutputPort) WriteByte(b byte) os.Error {
+	if self.w == nil { return portClosed }
+	bs := []byte { b }
+	_, err := self.w.Write(bs)
+	return err
+}
+
+func (self *OutputPort) Flush() os.Error {
+	if self.w == nil { return portClosed }
+	return self.w.Flush()
+}
+
+func (self *OutputPort) Close() os.Error {
+	if self.w == nil { return portClosed }
+	self.w = nil
+	if c, ok := self.ref.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 /*
