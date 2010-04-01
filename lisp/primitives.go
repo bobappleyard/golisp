@@ -23,6 +23,7 @@ func Primitives() Environment {
 		"display": Display,
 		"macro": newMacro,
 		// control
+		"go": spawn,
 		"load": load,
 		"eval": eval,
 		"apply": apply,
@@ -78,6 +79,10 @@ func Primitives() Environment {
 		"write-byte": writeByte,
 		"flush": flush,
 		"close": closePort,
+		// channels
+		"make-channel": makeChannel,
+		"channel-send": send,
+		"channel-receive": receive,
 	})
 }
 
@@ -108,6 +113,13 @@ func newMacro(m interface{}) interface{} {
 /* 
 	Control
 */
+
+func spawn(f interface{}) interface{} {
+	fn, ok := f.(Function)
+	if !ok { return TypeError("function", f) }
+	go fn.Apply(EMPTY_LIST)
+	return nil
+}
 
 func load(path, env interface{}) interface{} {
 	ctx, ok := env.(*Scope)
@@ -174,7 +186,7 @@ func startProc(path, args interface{}) interface{} {
 	if err != nil { return SystemError(err) }
 	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
 	if err != nil { return SystemError(err) }
-	return Cons(inw, outr)
+	return Cons(NewOutput(inw), NewInput(outr))
 }
 
 /*
@@ -198,6 +210,7 @@ func typeOf(x interface{}) interface{} {
 		case io.Writer: s = "output-port"
 		case *Custom: return x.(*Custom).Name()
 		case *big.Int: s = "bignum"
+		case chan interface{}: s = "channel"
 	}
 	if x == nil { s = "void" }
 	return Symbol(s)
@@ -563,5 +576,26 @@ func closePort(port interface{}) interface{} {
 	err := p.Close()
 	if err != nil { return SystemError(err) }
 	return nil
+}
+
+/*
+	Channels
+*/
+
+func makeChannel() interface{} {
+	return make(chan interface{})
+}
+
+func send(ch, v interface{}) interface{} {
+	channel, ok := ch.(chan interface{})
+	if !ok { return TypeError("channel", ch) }
+	channel <- v
+	return nil
+}
+
+func receive(ch interface{}) interface{} {
+	channel, ok := ch.(chan interface{})
+	if !ok { return TypeError("channel", ch) }
+	return <- channel
 }
 

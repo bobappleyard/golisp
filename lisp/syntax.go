@@ -153,7 +153,6 @@ func readExpr(expr peg.Expr, port interface{}) interface{} {
 		)
 	}
 	return d
-
 }
 
 func Read(port interface{}) interface{} {

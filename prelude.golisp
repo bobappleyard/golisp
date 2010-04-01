@@ -1,37 +1,42 @@
-; primitive types
-(define (is? x t) (== (type-of x) t))
-(define (boolean? x) (is? x 'boolean))
-(define (fixnum? x) (is? x 'fixnum))
-(define (bignum? x) (is? x 'bignum))
-(define (flonum? x) (is? x 'flonum))
-(define (number? x) (if (fixnum? x) #t (if (flonum? x) #t (bignum? x))))
-(define (string? x) (is? x 'string))
-(define (symbol? x) (is? x 'symbol))
-(define (pair? x) (is? x 'pair))
-(define (vector? x) (is? x 'vector))
-(define (macro? x) (is? x 'macro))
-(define (function? x) (is? x 'function))
-(define (input-port? x) (if (is? x 'port) #t (is? x 'input-port)))
-(define (output-port? x) (if (is? x 'port) #t (is? x 'output-port)))
+; primitive type predicates
+(define (is? x t)        (== (type-of x) t))
+(define (boolean? x)     (is? x 'boolean))
+(define (fixnum? x)      (is? x 'fixnum))
+(define (bignum? x)      (is? x 'bignum))
+(define (flonum? x)      (is? x 'flonum))
+(define (number? x)      (if (fixnum? x) #t (if (flonum? x) #t (bignum? x))))
+(define (string? x)      (is? x 'string))
+(define (symbol? x)      (is? x 'symbol))
+(define (pair? x)        (is? x 'pair))
+(define (vector? x)      (is? x 'vector))
+(define (macro? x)       (is? x 'macro))
+(define (function? x)    (is? x 'function))
+(define (input-port? x)  (is? x 'input-port))
+(define (output-port? x) (is? x 'output-port))
+
+; broader type predicates
+(define (atom? x) (not (sequence? x)))
+(define (sequence? x) (if (vector? x) #t (pair? x)))
 
 ; basic stuff
-(define (object->boolean x) (if x #t #f))
-(define (not x) (if x #f #t))
-(define (zero? x) (if (== x 0) #t (== x 0.0)))
-(define (even? x) (= (remainder x 2) 0))
-(define (odd? x) (not (even? x)))
-(define (1- x) (fixnum-sub x 1))
-(define (1+ x) (fixnum-add x 1))
-(define (list . xs) xs)
-(define (null? x) (== x ()))
-(define (vector . xs) (list->vector xs))
-(define ((const x) . _) x)
-(define void (const #v))
-(define ((compose f g) x) (f (g x)))
-(define ((curry f . first) . rest) (apply f (append first rest)))
-(define ((pred->guard p) x) (if (p x) x #f))
-(define ((guard->pred g) x) (object->boolean (g x)))
-(define (error msg) (throw 'error msg))
+(define (id x)                          x)
+(define (object->boolean x)             (if x #t #f))
+(define (not x)                         (if x #f #t))
+(define (zero? x)                       (if (== x 0) #t (== x 0.0)))
+(define (even? x)                       (= (remainder x 2) 0))
+(define (odd? x)                        (not (even? x)))
+(define (1- x)                          (fixnum-sub x 1))
+(define (1+ x)                          (fixnum-add x 1))
+(define (list . xs)                     xs)
+(define (null? x)                       (== x ()))
+(define (vector . xs)                   (list->vector xs))
+(define ((const x) . _)                 x)
+(define void                            (const #v))
+(define ((compose f g) x)               (f (g x)))
+(define ((curry f . first) . rest)      (apply f (append first rest)))
+(define ((pred->guard p) x)             (if (p x) x #f))
+(define ((guard->pred g) x)             (object->boolean (g x)))
+(define (error msg)                     (throw 'error msg))
 
 ; strings
 (define string->list (compose vector->list string->vector))
@@ -139,6 +144,9 @@
 (define-macro (unless t . b)
   `(when (not ,t) ,@b))
 
+(define-macro (define* . vs)
+  `(begin ,@(map (lambda (v) `(define ,v #v)) vs)))
+
 ; main macro set
 (define-macro (let bs . b)
   (define (named-let name bs b)
@@ -188,10 +196,9 @@
           (begin ,@(cdr c))
           (cond ,@(cdr cs)))))))
 
-
 (define-macro (do vars test . cmds)
   (define-gensyms loop)
-  `(let ,loop ,(map (lambda (var) `[,(car var) ,(cadr var)]) vars)
+  `(let ,loop ,(zip (map car vars) (map cadr vars))
     (if ,(car test)
       (begin
         ,@(cdr test))
@@ -249,36 +256,33 @@
 (define (list-tail ls idx)
   (do ([cur ls (cdr cur)] 
        [x idx (1- x)])
-    ((zero? x) cur)))
+    [(zero? x) cur]))
 
 (define (list-head ls idx)
-  (do ([cur ls (cdr cur)] 
-       [x idx (1- x)] 
-       [acc () (cons (car cur) acc)])
-    ((zero? x) (reverse acc))))
+  (reverse (list-tail (reverse ls) (- (length ls) idx))))
 
 (define (list-ref ls idx)
   (car (list-tail ls idx)))
 
-; equality
-(define (seq=? a b)
-  (fold (lambda (a+b acc) 
-          (and acc
-               (apply = a+b)))
-        #t
-        (zip a b)))
+; searching
+(define (member k ls)
+  (do ([cur ls (cdr cur)])
+    [(= k (car cur)) cur]))
 
+(define (assoc k ls)
+  (do ([cur ls (cdr cur)])
+    [(= k (caar cur)) (car cur)]))
+
+; equality
 (define (list=? a b)
   (and (list? a) 
        (list? b)
        (== (length a) (length b))
-       (seq=? a b)))
-
-(define (vector=? a b)
-  (and (vector? a) 
-       (vector? b)
-       (== (vector-length a) (vector-length b))
-       (seq=? a b)))
+       (fold (lambda (a+b acc) 
+               (and acc
+                    (apply = a+b)))
+             #t
+             (zip a b))))
 
 (define (= a b)
   ((cond 
@@ -287,12 +291,17 @@
      [else ==])
    a b))
 
-
 ; numbers
-(define + #f)
-(define - #f)
-(define * #f)
-(define / #f)
+(define* + - * /)
+(let ()
+  (define ((num-op fix flo) a b)
+    (if (and (fixnum? a) (fixnum? b))
+      (fix a b)
+      (flo (fixnum->flonum a) (fixnum->flonum b))))
+  (set! + (num-op fixnum-add flonum-add))
+  (set! - (num-op fixnum-sub flonum-sub))
+  (set! * (num-op fixnum-mul flonum-mul))
+  (set! / (num-op fixnum-div flonum-div)))
 
 ; control
 (define (dynamic-wind before thk after)
@@ -302,7 +311,7 @@
          (lambda (k m) (unless done (after)) (throw k m))))
 
 (define (call/ec f)
-  (define-gensyms msg)
+  (define msg (gensym))
   (catch (lambda () (f (lambda (x) (throw msg x))))
          (lambda (k m) (if (== k msg) m (throw k m)))))
 
