@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"./lisp"
+	"github.com/bobappleyard/golisp/lisp"
 )
 
 func main() {

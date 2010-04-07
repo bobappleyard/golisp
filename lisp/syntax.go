@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"strconv"
-	"./lexer"
-	"./peg"
+
+	"github.com/bobappleyard/bwl/lexer"
+	"github.com/bobappleyard/bwl/peg"
 )
 
 const (

@@ -8,7 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"./errors"
+
+	"github.com/bobappleyard/bwl/errors"
 )
 
 // All of the primitive functions defined by the library.

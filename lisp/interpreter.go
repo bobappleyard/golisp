@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"./errors"
+
+	"github.com/bobappleyard/bwl/errors"
 )
 
 /*
