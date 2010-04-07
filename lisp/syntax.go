@@ -86,19 +86,19 @@ var syntax = func() *peg.ExtensibleExpr {
 			if err != nil { 
 				num := big.NewInt(0)
 				_, ok := num.SetString(s, 10)
-				if !ok { return SystemError(err) }
+				if !ok { SystemError(err) }
 				return num
 			}
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
 			res, err := strconv.Atof(x.(string))
-			if err != nil { return SystemError(err) }
+			if err != nil { SystemError(err) }
 			return res
 		}),
 		peg.Bind(_STR, func(x interface{}) interface{} { 
 			res, err := strconv.Unquote(x.(string))
-			if err != nil { return SystemError(err) }
+			if err != nil { SystemError(err) }
 			return res
 		}),
 		listExpr(_LSTART, expr, _LEND),
@@ -130,7 +130,8 @@ var syntax = func() *peg.ExtensibleExpr {
 				case 'f': return false
 				case 't': return true
 			}
-			return SyntaxError("unknown hash syntax: " + s)
+			SyntaxError("unknown hash syntax: " + s)
+			panic("unreachable")
 		}),
 	})
 	return expr
@@ -138,7 +139,7 @@ var syntax = func() *peg.ExtensibleExpr {
 
 func readExpr(expr peg.Expr, port interface{}) interface{} {
 	p, ok := port.(*InputPort)
-	if !ok { return TypeError("input-port", port) }
+	if !ok { TypeError("input-port", port) }
 	if p.Eof() { return EOF_OBJECT }
 	l := lexer.New()
 	l.Regexes(nil, lex)
@@ -146,12 +147,7 @@ func readExpr(expr peg.Expr, port interface{}) interface{} {
 		return id != int(_WS) && id != int(_COMMENT) 
 	})
 	m, d := expr.Match(src)
-	if m.Failed() { 
-		return Throw(
-			Symbol("syntax-error"), 
-			fmt.Sprintf("failed to parse (%d)", m.Pos()),
-		)
-	}
+	if m.Failed() { SyntaxError(fmt.Sprintf("failed to parse (%d)", m.Pos())) }
 	return d
 }
 
@@ -198,14 +194,14 @@ func toWrite(def string, obj interface{}) string {
 
 func Write(obj, port interface{}) interface{} {
 	p, ok := port.(io.Writer)
-	if !ok { return TypeError("output-port", port) }
+	if !ok { TypeError("output-port", port) }
 	io.WriteString(p, toWrite("%#v", obj))
 	return nil
 }
 
 func Display(obj, port interface{}) interface{} {
 	p, ok := port.(io.Writer)
-	if !ok { return TypeError("output-port", port) }
+	if !ok { TypeError("output-port", port) }
 	io.WriteString(p, toWrite("%v", obj))
 	return nil
 }

@@ -3,8 +3,8 @@ package lisp
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
+	"./errors"
 )
 
 /*
@@ -38,17 +38,16 @@ func NewScope(parent *Scope) *Scope {
 }
 
 // Create a Scope that can be used as an interpreter.
-func New() (*Scope, os.Error) {
+func New() *Scope {
 	res := NewScope(nil)
 	res.Bind(Primitives())
 	res.Bind(WrapPrimitives(map[string] interface{} {
 		"root-environment": func() interface{} { return res },
 	}))
 	if PreludePath != "" {
-		err := res.Load(PreludePath)
-		if err != nil { return nil, err }
+		res.Load(PreludePath)
 	}
-	return res, nil
+	return res
 }
 
 // Scopes
@@ -70,7 +69,8 @@ func (self *Scope) EvalString(x string) interface{} {
 }
 
 func (self *Scope) Expand(x interface{}) interface{} {
-	for {
+	done := false
+	for !done {
 		p, ok := x.(*Pair); if !ok { break }
 		if s, ok := p.a.(Symbol); ok {
 			switch string(s) {
@@ -90,15 +90,13 @@ func (self *Scope) Expand(x interface{}) interface{} {
 				}
 				case "begin": return Cons(p.a, self.expandList(p.d))
 			}
-			if e := self.lookupSym(s); !Failed(e) {
-				if m, ok := e.(*macro); ok {
-					x = m.f.Apply(p.d)
-					continue
-				}
-			}
+			errors.Catch(
+				func() { x = self.lookupSym(s).(*macro).f.Apply(p.d) },
+				func (_ interface{}) { x, done = self.expandList(x), true },
+			)
+		} else {
+			x, done = self.expandList(x), true
 		}
-		x = self.expandList(x)
-		break
 	}
 	return x
 }
@@ -113,47 +111,50 @@ func (self *Scope) Lookup(x string) interface{} {
 	return self.lookupSym(Symbol(x))
 }
 
-func (self *Scope) Load(path string) os.Error {
-	_src, err := os.Open(path, os.O_RDONLY, 0)
-	if err != nil { return SystemError(err) }
-	src := NewInput(_src)
+func (self *Scope) Load(path string) {
+	src := openFile(path, Symbol("read"))
 	exprs := ReadFile(src)
-	if Failed(exprs) { return exprs.(os.Error) }
 	for cur := exprs; cur != EMPTY_LIST; cur = Cdr(cur) {
-		r := self.Eval(Car(cur))
-		if Failed(r) { return r.(os.Error) }
+		self.Eval(Car(cur))
 	}
-	return nil
 }
 
 func (self *Scope) Repl(in io.Reader, out io.Writer) {
+	// set stuff up
 	inp := NewInput(in)
-	in = inp
+	outp := NewOutput(out)
 	read := func() interface{} {
-		s, err := inp.ReadLine()
-		if err != nil { return err }
+		res := inp.ReadLine()
+		if res == EOF_OBJECT { return nil }
+		s := res.(string)
 		if strings.TrimSpace(s) == "" { return nil }
-		res := ReadString(s)
+		res = ReadString(s)
 		if res == EOF_OBJECT { return nil }
 		return res
 	}
 	self.Bind(WrapPrimitives(map[string] interface{} {
-		"standard-input": func() interface{} { return in },
-		"standard-output": func() interface{} { return out },
+		"standard-input": func() interface{} { return inp },
+		"standard-output": func() interface{} { return outp },
 	}))
-	Display("> ", out)
-	for x := read(); !inp.Eof(); x = read() {
-		x = self.Eval(x)
+	// main loop
+	var x interface{}
+	for !inp.Eof() {
+		errors.Catch(
+			func() { 
+				Display("> ", outp)
+				outp.Flush()
+				x = self.Eval(read())
+			},
+			func(err interface{}) { x = err },
+		)
 		if x != nil {
-			Write(x, out)
-			Display("\n", out)
+			Write(x, outp)
+			Display("\n", outp)
 		}
-		Display("> ", out)
 	}
-	Display("\n", out)
+	Display("\n", outp)
+	outp.Flush()	
 }
-
-
 
 func (self *Scope) evalExpr(_x interface{}, tail *tailStruct) interface{} {
 	// pairs and symbols get treated specially
@@ -170,26 +171,33 @@ func (self *Scope) evalPair(x *Pair, tail *tailStruct) interface{} {
 		case Symbol: switch string(n) {
 			// standard forms
 			case "quote": return Car(x.d)
-			case "if": return self.evalIf(x.d, tail)
+			case "if": 	if True(self.evalExpr(ListRef(x.d, 0), nil)) { 
+				return self.evalExpr(ListRef(x.d, 1), tail)
+			} else {
+				return self.evalExpr(ListRef(x.d, 2), tail)
+			}
 			case "lambda": return &closure { self, Car(x.d), Cdr(x.d) }
 			case "set!": {
-				v := self.evalExpr(Car(Cdr(x.d)), nil)
-				if Failed(v) { return v }
-				return self.mutate(Car(x.d), v)
+				v := self.evalExpr(ListRef(x.d, 1), nil)
+				self.mutate(Car(x.d), v)
+				return nil
 			}
-			case "define": return self.evalDefine(x.d)
+			case "define": {
+				self.evalDefine(x.d)
+				return nil
+			}
 			case "begin": return self.evalBlock(x.d, tail)
 			// otherwise fall through to a function call
 		}
 		case *Pair: // do nothing, it's handled below
-		default: return TypeError("pair or symbol", n)
+		default: TypeError("pair or symbol", n)
 	}
 	// function application
 	return self.evalCall(self.evalExpr(x.a, nil), x.d, tail)
 }
 
 func (self *Scope) lookupSym(x Symbol) interface{} {
-	if self == nil { return Error(fmt.Sprintf("unknown variable: %s", x)) }
+	if self == nil { Error(fmt.Sprintf("unknown variable: %s", x)) }
 	res, ok := self.env[x]
 	if ok {
 		return res
@@ -197,27 +205,16 @@ func (self *Scope) lookupSym(x Symbol) interface{} {
 	return self.parent.lookupSym(x)
 }
 
-func (self *Scope) evalIf(expr interface{}, tail *tailStruct) interface{} {
-	test := self.evalExpr(ListRef(expr, 0), nil)
-	if Failed(test) { return test }
-	if True(test) { return self.evalExpr(ListRef(expr, 1), tail) }
-	return self.evalExpr(ListRef(expr, 2), tail)
-}
-
-func (self *Scope) mutate(_name, val interface{}) interface{} {
-	if self == nil {
-		return Error(fmt.Sprintf("unknown variable: %s", _name))
-	}
+func (self *Scope) mutate(_name, val interface{}) {
+	if self == nil { Error(fmt.Sprintf("unknown variable: %s", _name)) }
 	name, ok := _name.(Symbol)
-	if !ok { return TypeError("symbol", _name) }
+	if !ok { TypeError("symbol", _name) }
 	_, ok = self.env[name]
-	if !ok { return self.parent.mutate(_name, val) }
+	if !ok { self.parent.mutate(_name, val) }
 	self.env[name] = val
-	return nil
 }
 
 func (self *Scope) evalCall(f, args interface{}, tail *tailStruct) interface{} {
-	if Failed(f) { return f }
 	var argvals interface{} = EMPTY_LIST
 	p := new(Pair)
 	// evaluate the arguments
@@ -226,7 +223,6 @@ func (self *Scope) evalCall(f, args interface{}, tail *tailStruct) interface{} {
 			argvals = p
 		}
 		r := self.evalExpr(Car(cur), nil)
-		if Failed(r) { return r }
 		p.a = r
 		if Cdr(cur) == EMPTY_LIST {
 			p.d = EMPTY_LIST
@@ -238,7 +234,7 @@ func (self *Scope) evalCall(f, args interface{}, tail *tailStruct) interface{} {
 	}
 	// get the function
 	fn, ok := f.(Function)
-	if !ok { return TypeError("function", f) }
+	if !ok { TypeError("function", f) }
 	// call it
 	if tail == nil {
 		return fn.Apply(argvals)
@@ -249,17 +245,13 @@ func (self *Scope) evalCall(f, args interface{}, tail *tailStruct) interface{} {
 	return nil
 }
 
-func (self *Scope) evalDefine(ls interface{}) interface{} {
+func (self *Scope) evalDefine(ls interface{}) {
 	d := Car(ls)
-	if Failed(d) { return d }
 	n, ok := d.(Symbol)
-	if !ok { return TypeError("symbol", d) }
+	if !ok { TypeError("symbol", d) }
 	d = Car(Cdr(ls))
-	if Failed(d) { return d }
 	d = self.evalExpr(d, nil)
-	if Failed(d) { return d }
 	self.env[n] = d
-	return nil
 }
 
 func (self *Scope) evalBlock(body interface{}, tail *tailStruct) interface{} {
@@ -268,8 +260,7 @@ func (self *Scope) evalBlock(body interface{}, tail *tailStruct) interface{} {
 		if Cdr(cur) == EMPTY_LIST { // in tail position
 			res = self.evalExpr(Car(cur), tail)
 		} else {
-			v := self.evalExpr(Car(cur), nil)
-			if Failed(v) { return v }
+			self.evalExpr(Car(cur), nil)
 		}
 	}
 	return res
@@ -329,8 +320,7 @@ func (self *closure) Apply(args interface{}) interface{} {
 		if cl, ok := f.(*closure); ok {
 			f = nil
 			ctx := NewScope(cl.ctx)
-			err := cl.bindArgs(ctx, args)
-			if err != nil { return err }
+			cl.bindArgs(ctx, args)
 			res = ctx.evalBlock(cl.body, tail)
 		} else {
 			// primitive functions, or whatever
@@ -340,27 +330,23 @@ func (self *closure) Apply(args interface{}) interface{} {
 	return res
 }
 
-func (self *closure) bindArgs(ctx *Scope, args interface{}) os.Error {
+func (self *closure) bindArgs(ctx *Scope, args interface{}) {
 	vars := self.vars
 	for {
-		if Failed(args) { return args.(os.Error) }
-		if vars == EMPTY_LIST && args == EMPTY_LIST { return nil }
-		if vars == EMPTY_LIST { return ArgumentError(self, args) }
+		if vars == EMPTY_LIST && args == EMPTY_LIST { break }
+		if vars == EMPTY_LIST { ArgumentError(self, args) }
 		p, pair := vars.(*Pair)
-		if args == EMPTY_LIST && pair { return ArgumentError(self, args) }
-		if !pair { return self.bindArg(ctx, vars, args) }
-		err := self.bindArg(ctx, p.a, Car(args))
-		if err != nil { return err }
+		if args == EMPTY_LIST && pair { ArgumentError(self, args) }
+		if !pair { self.bindArg(ctx, vars, args); break }
+		self.bindArg(ctx, p.a, Car(args))
 		vars, args = p.d, Cdr(args)
 	}
-	panic("unreachable")
 }
 
-func (self *closure) bindArg(ctx *Scope, name, val interface{}) os.Error {
+func (self *closure) bindArg(ctx *Scope, name, val interface{}) {
 	n, ok := name.(Symbol)
-	if !ok { return TypeError("symbol", name) }
+	if !ok { TypeError("symbol", name) }
 	ctx.env[n] = val
-	return nil
 }
 
 // Macros

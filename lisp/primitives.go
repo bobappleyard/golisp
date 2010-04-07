@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"./errors"
 )
 
 // All of the primitive functions defined by the library.
@@ -91,7 +92,12 @@ func Primitives() Environment {
 */
 
 func eq(a, b interface{}) interface{} {
-	return a == b
+	var res interface{}
+	errors.Catch(
+		func() { res = a == b }, 
+		func(_ interface{}) { res = false },
+	)
+	return res
 }
 
 /*
@@ -100,13 +106,13 @@ func eq(a, b interface{}) interface{} {
 
 func readStr(str interface{}) interface{} {
 	s, ok := str.(string)
-	if !ok { return TypeError("string", str) }
+	if !ok { TypeError("string", str) }
 	return ReadString(s)
 }
 
 func newMacro(m interface{}) interface{} {
 	f, ok := m.(Function)
-	if !ok { return TypeError("function", m) }
+	if !ok { TypeError("function", m) }
 	return &macro { f }
 }
 
@@ -116,47 +122,52 @@ func newMacro(m interface{}) interface{} {
 
 func spawn(f interface{}) interface{} {
 	fn, ok := f.(Function)
-	if !ok { return TypeError("function", f) }
+	if !ok { TypeError("function", f) }
 	go fn.Apply(EMPTY_LIST)
 	return nil
 }
 
 func load(path, env interface{}) interface{} {
 	ctx, ok := env.(*Scope)
-	if !ok { return TypeError("environment", env) }
+	if !ok { TypeError("environment", env) }
 	p, ok := path.(string)
-	if !ok { return TypeError("string", path) }
-	return ctx.Load(p)
+	if !ok { TypeError("string", path) }
+	ctx.Load(p)
+	return nil
 }
 
 func eval(expr, env interface{}) interface{} {
 	ctx, ok := env.(*Scope)
-	if !ok { return TypeError("environment", env) }
+	if !ok { TypeError("environment", env) }
 	return ctx.Eval(expr)
 }
 
 func apply(f, args interface{}) interface{} {
 	fn, ok := f.(Function)
-	if !ok { return TypeError("function", f) }
+	if !ok { TypeError("function", f) }
 	return fn.Apply(args)
 }
 
 func throw(kind, msg interface{}) interface{} {
 	k, ok := kind.(Symbol)
-	if !ok { return TypeError("symbol", kind) }
-	return Throw(k, msg)
+	if !ok { TypeError("symbol", kind) }
+	Throw(k, msg)
+	panic("unreachable")
 }
 		
 func catch(thk, hnd interface{}) interface{} {
 	t, ok := thk.(Function)
-	if !ok { return TypeError("function", t) }
+	if !ok { TypeError("function", t) }
 	h, ok := hnd.(Function)
-	if !ok { return TypeError("function", h) }
-	res := Call(t)
-	// handle interface{} errors
-	if r, ok := res.(*errorStruct); ok {
-		res = Call(h, r.kind, r.msg)
-	}
+	if !ok { TypeError("function", h) }
+	var res interface{}
+	errors.Catch(
+		func() { res = Call(t) },
+		func(err interface{}) {	
+			e := WrapError(err).(*errorStruct)
+			res = Call(h, e.kind, e.msg) 
+		},
+	)
 	return res
 }
 
@@ -166,26 +177,26 @@ func nullEnv() interface{} {
 
 func capEnv(env interface{}) interface{} {
 	e, ok := env.(*Scope)
-	if !ok { return TypeError("environment", env) }
+	if !ok { TypeError("environment", env) }
 	return NewScope(e)
 }
 
 func startProc(path, args interface{}) interface{} {
 	p, ok := path.(string)
-	if !ok { return TypeError("string", path) }
+	if !ok { TypeError("string", path) }
 	argv := make([]string, ListLen(args))
 	for cur, i := args, 0; cur != EMPTY_LIST; cur, i = Cdr(cur), i + 1 {
 		x := Car(cur)
 		s, ok := x.(string)
-		if !ok { return TypeError("string", x) }
+		if !ok { TypeError("string", x) }
 		argv[i] = s
 	}
 	inr, inw, err := os.Pipe()
-	if err != nil { return SystemError(err) }
+	if err != nil { SystemError(err) }
 	outr, outw, err := os.Pipe()
-	if err != nil { return SystemError(err) }
+	if err != nil { SystemError(err) }
 	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
-	if err != nil { return SystemError(err) }
+	if err != nil { SystemError(err) }
 	return Cons(NewOutput(inw), NewInput(outr))
 }
 
@@ -205,9 +216,8 @@ func typeOf(x interface{}) interface{} {
 		case Vector: s = "vector"
 		case *macro: s = "macro"
 		case Function: s = "function"
-		case io.ReadWriter: s = "port"
-		case io.Reader: s = "input-port"
-		case io.Writer: s = "output-port"
+		case *InputPort: s = "input-port"
+		case *OutputPort: s = "output-port"
 		case *Custom: return x.(*Custom).Name()
 		case *big.Int: s = "bignum"
 		case chan interface{}: s = "channel"
@@ -218,25 +228,24 @@ func typeOf(x interface{}) interface{} {
 
 func newCustom(name, fn interface{}) interface{} {
 	n, ok := name.(Symbol)
-	if !ok { return TypeError("symbol", name) }
+	if !ok { TypeError("symbol", name) }
 	f, ok := fn.(Function)
-	if !ok { return TypeError("function", fn) }
+	if !ok { TypeError("function", fn) }
 	wrap := WrapPrimitive(func(x interface{}) interface{} { 
 		return NewCustom(n, x) 
 	})
 	unwrap := WrapPrimitive(func(x interface{}) interface{} {
 		c, ok := x.(*Custom)
-		if !ok || c.name != n { return TypeError(string(n), x) }
+		if !ok || c.name != n { TypeError(string(n), x) }
 		return c.Get()
 	})
 	set := WrapPrimitive(func(x, v interface{}) interface{} {
 		c, ok := x.(*Custom)
-		if !ok || c.name != n { return TypeError(string(n), x) }
+		if !ok || c.name != n { TypeError(string(n), x) }
 		c.Set(v)
 		return nil
 	})
-	res := Call(f, wrap, unwrap, set)
-	if Failed(res) { return res }
+	Call(f, wrap, unwrap, set)
 	return nil
 }
 
@@ -246,26 +255,26 @@ func newCustom(name, fn interface{}) interface{} {
 
 func symToStr(sym interface{}) interface{} {
 	s, ok := sym.(Symbol)
-	if !ok { return TypeError("symbol", sym) }
+	if !ok { TypeError("symbol", sym) }
 	return string(s)
 }
 
 func strToSym(str interface{}) interface{} {
 	s, ok := str.(string)
-	if !ok { return TypeError("string", str) }
+	if !ok { TypeError("string", str) }
 	return Symbol(s)
 }
 
 var gensyms = func() <-chan Symbol {
-	res := make(chan Symbol)
+	syms := make(chan Symbol)
 	go func() {
 		i := 0
 		for {
-			res <- Symbol("#gensym" + strconv.Itoa(i))
+			syms <- Symbol("#gensym" + strconv.Itoa(i))
 			i++
 		}
 	}()
-	return res
+	return syms
 }()
 
 func gensym() interface{} {
@@ -281,14 +290,15 @@ func fixToFlo(_x interface{}) interface{} {
 		case int: return float(x)
 		case float: return x
 	}
-	return TypeError("number", _x) 
+	TypeError("number", _x) 
+	panic("unreachable")
 }
 
 func fixnumFunc(_a, _b interface{}, f func (a, b int) interface{}) interface{} {
 	a, ok := _a.(int)
-	if !ok { return TypeError("fixnum", _a) }
+	if !ok { TypeError("fixnum", _a) }
 	b, ok := _b.(int)
-	if !ok { return TypeError("fixnum", _b) }
+	if !ok { TypeError("fixnum", _b) }
 	return f(a, b)
 }
 
@@ -306,7 +316,7 @@ func fixnumMul(_a, _b interface{}) interface{} {
 
 func fixnumDiv(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
-		if b == 0 { return Error("divide by zero") }
+		if b == 0 { Error("divide by zero") }
 		if a % b == 0 { return a / b }
 		return float(a) / float(b)
 	})
@@ -314,21 +324,21 @@ func fixnumDiv(_a, _b interface{}) interface{} {
 
 func fixnumQuotient(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
-		if b == 0 { return Error("divide by zero") }	
+		if b == 0 { Error("divide by zero") }	
 		return a / b
 	})
 }
 
 func fixnumRemainder(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
-		if b == 0 { return Error("divide by zero") }
+		if b == 0 { Error("divide by zero") }
 		return a % b
 	})
 }
 
 func fixnumModulo(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
-		if b == 0 { return Error("divide by zero") }
+		if b == 0 { Error("divide by zero") }
 		r := a % b
 		if !(r == 0 || (a > 0 && b > 0) || (a < 0 && b < 0)) {
 			r += b
@@ -339,9 +349,9 @@ func fixnumModulo(_a, _b interface{}) interface{} {
 
 func flonumFunc(_a, _b interface{}, f func(a, b float) interface{}) interface{} {
 	a, ok := _a.(float)
-	if !ok { return TypeError("flonum", _a) }
+	if !ok { TypeError("flonum", _a) }
 	b, ok := _b.(float)
-	if !ok { return TypeError("flonum", _b) }
+	if !ok { TypeError("flonum", _b) }
 	return f(a, b)
 }
 
@@ -359,7 +369,7 @@ func flonumMul(_a, _b interface{}) interface{} {
 
 func flonumDiv(_a, _b interface{}) interface{} {
 	return flonumFunc(_a, _b, func(a, b float) interface{} {
-		if b == 0 { return Error("divide by zero") }
+		if b == 0 { Error("divide by zero") }
 		return a / b
 	})
 }
@@ -370,9 +380,9 @@ func flonumDiv(_a, _b interface{}) interface{} {
 
 func stringSplit(str, sep interface{}) interface{} {
 	s, ok := str.(string)
-	if !ok { return TypeError("string", str) }
+	if !ok { TypeError("string", str) }
 	b, ok := sep.(string)
-	if !ok { return TypeError("string", sep) }
+	if !ok { TypeError("string", sep) }
 	ss := strings.Split(s, b, 0)
 	res := EMPTY_LIST
 	for i := len(ss) - 1; i >= 0; i-- {
@@ -384,11 +394,11 @@ func stringSplit(str, sep interface{}) interface{} {
 func stringJoin(strs, sep interface{}) interface{} {
 	ss := make([]string, ListLen(strs))
 	b, ok := sep.(string)
-	if !ok { return TypeError("string", sep) }
+	if !ok { TypeError("string", sep) }
 	for cur, i := strs, 0; cur != EMPTY_LIST; cur, i = Cdr(cur), i + 1 {
 		x := Car(cur)
 		s, ok := x.(string)
-		if !ok { return TypeError("string", x) }
+		if !ok { TypeError("string", x) }
 		ss[i] = s
 	}
 	return strings.Join(ss, b)
@@ -396,7 +406,7 @@ func stringJoin(strs, sep interface{}) interface{} {
 
 func strToVec(str interface{}) interface{} {
 	s, ok := str.(string)
-	if !ok { return TypeError("string", str) }
+	if !ok { TypeError("string", str) }
 	rs := bytes.Runes([]byte(s))
 	res := make(Vector, len(rs))
 	for i, x := range rs { res[i] = x }
@@ -413,7 +423,7 @@ func objToStr(obj interface{}) interface{} {
 
 func makeVector(size, fill interface{}) interface{} {
 	s, ok := size.(int)
-	if !ok { return TypeError("vector", size) }
+	if !ok { TypeError("vector", size) }
 	res := make(Vector, s)
 	for i,_ := range res {
 		res[i] = fill
@@ -423,41 +433,41 @@ func makeVector(size, fill interface{}) interface{} {
 
 func vectorLength(vec interface{}) interface{} {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	return len(v)
 }
 
 func vectorRef(vec, idx interface{}) interface{} {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	i, ok := idx.(int)
-	if !ok { return TypeError("fixnum", idx) }
+	if !ok { TypeError("fixnum", idx) }
 	return v.Get(i)
 }
 
 func vectorSet(vec, idx, val interface{}) interface{} {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	i, ok := idx.(int)
-	if !ok { return TypeError("fixnum", idx) }
+	if !ok { TypeError("fixnum", idx) }
 	return v.Set(i, val)
 }
 
 func slice(vec, lo, hi interface{}) interface{} {
 	v, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	l, ok := lo.(int)
-	if !ok { return TypeError("fixnum", lo) }
+	if !ok { TypeError("fixnum", lo) }
 	h, ok := hi.(int)
-	if !ok { return TypeError("fixnum", hi) }
-	if l < 0 { return Error(fmt.Sprintf("invalid index (%v)", h)) }
-	if h > len(v) { return Error(fmt.Sprintf("invalid index (%v)", h)) }
+	if !ok { TypeError("fixnum", hi) }
+	if l < 0 { Error(fmt.Sprintf("invalid index (%v)", h)) }
+	if h > len(v) { Error(fmt.Sprintf("invalid index (%v)", h)) }
 	return v[l:h]
 }
 
 func lsToVec(lst interface{}) interface{} {
 	l := ListLen(lst)
-	if l == -1 { return TypeError("pair", lst) }
+	if l == -1 { TypeError("pair", lst) }
 	res := make(Vector, l)
 	for i := 0; lst != EMPTY_LIST; i, lst = i + 1, Cdr(lst) {
 		a := Car(lst)
@@ -469,7 +479,7 @@ func lsToVec(lst interface{}) interface{} {
 
 func vecToLs(vec interface{}) interface{} {
 	xs, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	var res interface{} = EMPTY_LIST
 	for i := len(xs) - 1; i >= 0; i-- {
 		res = Cons(xs[i], res)
@@ -479,11 +489,11 @@ func vecToLs(vec interface{}) interface{} {
 
 func vecToStr(vec interface{}) interface{} {
 	cs, ok := vec.(Vector)
-	if !ok { return TypeError("vector", vec) }
+	if !ok { TypeError("vector", vec) }
 	res := make([]int, len(cs))
 	for i, c := range cs {
 		r, ok := c.(int)
-		if !ok { return TypeError("vector of fixnums", vec) }
+		if !ok { TypeError("vector of fixnums", vec) }
 		res[i] = r
 	}
 	return string(res)
@@ -493,13 +503,11 @@ func vecToStr(vec interface{}) interface{} {
 	Ports
 */
 
-var EOF_OBJECT = NewConstant("#eof-object")
-
 func openFile(path, mode interface{}) interface{} {
 	p, ok := path.(string)
-	if !ok { return TypeError("string", path) }
+	if !ok { TypeError("string", path) }
 	m, ok := mode.(Symbol)
-	if !ok { return TypeError("symbol", mode) }
+	if !ok { TypeError("symbol", mode) }
 	wrap := func(x interface{}) interface{} { return NewOutput(x.(io.Writer)) }
 	filemode, perms := 0, 0
 	switch string(m) {
@@ -509,33 +517,23 @@ func openFile(path, mode interface{}) interface{} {
 		}
 		case "write": filemode = os.O_WRONLY
 		case "append": filemode = os.O_APPEND
-		default: return Error(fmt.Sprintf("wrong access token: %s", m))
+		default: Error(fmt.Sprintf("wrong access token: %s", m))
 	}
 	f, err := os.Open(p, filemode, perms)
-	if err != nil { return SystemError(err) }
+	if err != nil { SystemError(err) }
 	return wrap(f)
 }
 
 func readChar(port interface{}) interface{} {
 	p, ok := port.(*InputPort)
-	if !ok { return TypeError("input-port", port) }
-	r, err := p.ReadChar()
-	if err != nil {
-		if err == os.EOF { return EOF_OBJECT }
-		return SystemError(err)
-	}
-	return string(r)
+	if !ok { TypeError("input-port", port) }
+	return p.ReadChar()
 }
 
 func readByte(port interface{}) interface{} {	
 	p, ok := port.(*InputPort)
-	if !ok { return TypeError("input-port", port) }
-	b, err := p.ReadByte()
-	if err != nil { 
-		if err == os.EOF { return EOF_OBJECT }
-		return SystemError(err)
-	}
-	return int(b)
+	if !ok { TypeError("input-port", port) }
+	return p.ReadByte()
 }
 
 func isEof(x interface{}) interface{} {
@@ -544,37 +542,35 @@ func isEof(x interface{}) interface{} {
 
 func writeString(port, str interface{}) interface{} {
 	p, ok := port.(*OutputPort)
-	if !ok { return TypeError("output-port", port) }
+	if !ok { TypeError("output-port", port) }
 	s, ok := str.(string)
-	if !ok { return TypeError("string", str) }
-	err := p.WriteString(s)
-	if err != nil { return SystemError(err) }
+	if !ok { TypeError("string", str) }
+	p.WriteString(s)
 	return nil
 }
 
 func writeByte(port, bte interface{}) interface{} {	
 	p, ok := port.(*OutputPort)
-	if !ok { return TypeError("output-port", port) }
+	if !ok { TypeError("output-port", port) }
 	b, ok := bte.(int)
-	if !ok { return TypeError("fixnum", bte) }
-	err := p.WriteByte(byte(b))
-	if err != nil { return SystemError(err) }
+	if !ok { TypeError("fixnum", bte) }
+	p.WriteByte(byte(b))
 	return nil
 }
 
 func flush(port interface{}) interface{} {
 	p, ok := port.(*OutputPort)
-	if !ok { return TypeError("output-port", port) }
-	err := p.Flush()
-	if err != nil { return SystemError(err) }
+	if !ok { TypeError("output-port", port) }
+	p.Flush()
 	return nil
 }
 
 func closePort(port interface{}) interface{} {
-	p, ok := port.(io.Closer)
-	if !ok { return TypeError("port", port) }
-	err := p.Close()
-	if err != nil { return SystemError(err) }
+	switch p := port.(type) {
+		case *InputPort: p.Close()
+		case *OutputPort: p.Close()
+		default: TypeError("port", port)
+	}
 	return nil
 }
 
@@ -588,14 +584,14 @@ func makeChannel() interface{} {
 
 func send(ch, v interface{}) interface{} {
 	channel, ok := ch.(chan interface{})
-	if !ok { return TypeError("channel", ch) }
+	if !ok { TypeError("channel", ch) }
 	channel <- v
 	return nil
 }
 
 func receive(ch interface{}) interface{} {
 	channel, ok := ch.(chan interface{})
-	if !ok { return TypeError("channel", ch) }
+	if !ok { TypeError("channel", ch) }
 	return <- channel
 }
 

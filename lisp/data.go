@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"unsafe"
-	"./errors"
 )
 
 /*
@@ -79,9 +78,8 @@ func WrapPrimitive(_f interface{}) Function {
 	wrap := func(l int, f func(Vector) interface{}) Function {
 		var res Function
 		res = Primitive(func(args interface{}) interface{} {
-			as, ok := lsToVec(args).(Vector)
-			if !ok { return ArgumentError(res, args) }
-			if len(as) != l { return ArgumentError(res, args) }
+			as := lsToVec(args).(Vector)
+			if len(as) != l { ArgumentError(res, args) }
 			return f(as)
 		})
 		return res
@@ -106,13 +104,12 @@ func WrapPrimitive(_f interface{}) Function {
 			return f(args[0], args[1], args[2], args[3], args[4])
 		})
 	}
-	errors.Fatal(os.ErrorString("invalid primitive function"))
+	Error(fmt.Sprintf("invalid primitive function: %s", toWrite("%#v", _f)))
 	return nil
 }
 
 // Takes a map, containing functions to be passed to WrapPrimitive. Returns 
-// an environment. Will crash the program if interface{} fail to match. Consider 
-// yourself warned.
+// an environment.
 func WrapPrimitives(env map[string] interface{}) Environment {
 	res := make(Environment)
 	for k, v := range env {
@@ -143,32 +140,39 @@ func Failed(x interface{}) bool {
 	return failed
 }
 
-func Throw(kind Symbol, msg interface{}) os.Error {
-	return &errorStruct { kind, msg }
+func WrapError(err interface{}) os.Error {
+	switch e := err.(type) {
+		case *errorStruct: return e
+		case os.Error: return &errorStruct { Symbol("system-error"), e.String() }
+		default: TypeError("error", err)
+	}
+	panic("unreachable")
 }
 
-func Error(msg string) os.Error {
-	return Throw(Symbol("error"), msg)
+func Throw(kind Symbol, msg interface{}) {
+	panic(&errorStruct { kind, msg })
 }
 
-func TypeError(expected string, obj interface{}) os.Error {
-	return Throw(
-		Symbol("type-error"), 
-		fmt.Sprintf("expecting %s: %s", expected, toWrite("%#v", obj)),
-	)
+func Error(msg string) {
+	Throw(Symbol("error"), msg)
 }
 
-func ArgumentError(f, args interface{}) os.Error {
+func TypeError(expected string, obj interface{}) {
+	msg := fmt.Sprintf("expecting %s: %s", expected, toWrite("%#v", obj))
+	Throw(Symbol("type-error"), msg)
+}
+
+func ArgumentError(f, args interface{}) {
 	msg := fmt.Sprintf("wrong number of arguments to %v: %#v", f, args)
-	return Throw(Symbol("argument-error"), msg)
+	Throw(Symbol("argument-error"), msg)
 }
 
-func SystemError(err os.Error) os.Error {
-	return Throw(Symbol("system-error"), err.String())
+func SystemError(err os.Error) {
+	Throw(Symbol("system-error"), err.String())
 }
 
-func SyntaxError(err string) os.Error {
-	return Throw(Symbol("syntax-error"), err)
+func SyntaxError(err string) {
+	Throw(Symbol("syntax-error"), err)
 }
 
 /*
@@ -180,13 +184,15 @@ var EMPTY_LIST = NewConstant("()")
 type Pair struct { a, d interface{} }
 
 func (self *Pair) toWrite(def string) string {
+	res := ""
 	if self.d == EMPTY_LIST {
-		return fmt.Sprintf("(%s)", toWrite(def, self.a))
+		res = fmt.Sprintf("(%s)", toWrite(def, self.a))
+	} else if d, ok := self.d.(*Pair); ok {
+		res = fmt.Sprintf("(%s %s", toWrite(def, self.a), toWrite(def, d)[1:])
+	} else {
+		res = fmt.Sprintf("(%s . %s)", toWrite(def, self.a), toWrite(def, self.d))
 	}
-	if d, ok := self.d.(*Pair); ok {
-		return fmt.Sprintf("(%s %s", toWrite(def, self.a), toWrite(def, d)[1:])
-	}
-	return fmt.Sprintf("(%s . %s)", toWrite(def, self.a), toWrite(def, self.d))
+	return res
 }
 
 func (self *Pair) String() string {
@@ -198,15 +204,12 @@ func (self *Pair) GoString() string {
 }
 
 func Cons(a, d interface{}) interface{} {
-	if Failed(a) { return a }
-	if Failed(d) { return d }
 	return &Pair { a, d }
 }
 
 func pairFunc(x interface{}, f func(*Pair) interface{}) interface{} {
-	if Failed(x) { return x }
 	p, ok := x.(*Pair)
-	if !ok { return TypeError("pair", x) }
+	if !ok { TypeError("pair", x) }
 	return f(p)
 }
 
@@ -224,16 +227,12 @@ func List(xs... interface{}) interface{} {
 
 func ListLen(ls interface{}) int {
 	res := 0
-	for; ls != EMPTY_LIST; ls, res = Cdr(ls), res + 1 {
-		if Failed(ls) { return -1 }
-	}
+	for; ls != EMPTY_LIST; ls, res = Cdr(ls), res + 1 {}
 	return res
 }
 
 func ListTail(ls interface{}, idx int) interface{} {
-	for ; idx > 0; idx, ls = idx - 1, Cdr(ls) {
-		if Failed(ls) { return ls }
-	}
+	for ; idx > 0; idx, ls = idx - 1, Cdr(ls) {}
 	return ls
 }
 
@@ -247,27 +246,26 @@ func ListRef(ls interface{}, idx int) interface{} {
 
 type Vector []interface{}
 
-func (self Vector) testRange(i int) interface{} {
+func (self Vector) testRange(i int) {
 	if i < 0 || i >= len(self) { 
-		return Error(fmt.Sprintf("invalid index (%v)", i))
+		Error(fmt.Sprintf("invalid index (%v)", i))
 	}
-	return nil
 }
 
 func (self Vector) Get(i int) interface{} {
-	if e := self.testRange(i); e != nil { return e }
+	self.testRange(i)
 	return self[i]
 }
 
 func (self Vector) Set(i int, v interface{}) interface{} {
-	if e := self.testRange(i); e != nil { return e }
+	self.testRange(i)
 	self[i] = v
 	return nil
 }
 
 func (self Vector) Slice(lo, hi int) interface{} {
-	if e := self.testRange(lo); e != nil { return e }
-	if e := self.testRange(hi-1); e != nil { return e }
+	self.testRange(lo)
+	self.testRange(hi - 1)
 	return self[lo:hi]
 }
 
@@ -290,7 +288,10 @@ func (self Vector) GoString() string {
 /*
 	Ports
 */
-var portClosed = os.ErrorString("port closed")
+var (
+	EOF_OBJECT = NewConstant("#eof-object")
+	_PORT_CLOSED = os.ErrorString("port closed")
+)
 
 type InputPort struct {
 	eof bool
@@ -299,58 +300,65 @@ type InputPort struct {
 }
 
 func NewInput(r io.Reader) *InputPort {
+	if p, ok := r.(*InputPort); ok { return p }
 	return &InputPort { false, r, bufio.NewReader(r) }
 }
 
 func (self *InputPort) Read(bs []byte) (int, os.Error) {
-	if self.r == nil { return 0, portClosed }
+	if self.r == nil { return 0, _PORT_CLOSED }
 	if self.eof { return 0, os.EOF }
 	l, err := self.r.Read(bs)
 	self.eof = err == os.EOF
 	return l, err
 }
 
-func (self *InputPort) ReadChar() (int, os.Error) {
-	if self.r == nil { return 0, portClosed }
-	if self.eof { return 0, os.EOF }
+func (self *InputPort) ReadChar() interface{} {
+	if self.r == nil { SystemError(_PORT_CLOSED) }
+	if self.eof { return EOF_OBJECT }
 	res, _, err := self.r.ReadRune()
-	self.eof = err == os.EOF
-	return res, err
+	if err != nil {
+		self.eof = err == os.EOF
+		if !self.eof { SystemError(err) }
+	}
+	return res
 }
 
-func (self *InputPort) ReadByte() (byte, os.Error) {
-	if self.r == nil { return 0, portClosed }
-	if self.eof { return 0, os.EOF }
+func (self *InputPort) ReadByte() interface{} {
+	if self.r == nil { SystemError(_PORT_CLOSED) }
+	if self.eof { return EOF_OBJECT }
 	bs := []byte { 0 }
 	_, err := self.Read(bs)
-	self.eof = err == os.EOF
-	return bs[0], err
+	if err != nil {
+		self.eof = err == os.EOF
+		if !self.eof { SystemError(err) }
+	}	
+	return int(bs[0])
 }
 
-func (self *InputPort) ReadLine() (string, os.Error) {
-	if self.r == nil { return "", portClosed }
-	if self.eof { return "", os.EOF }
+func (self *InputPort) ReadLine() interface{} {
+	if self.r == nil { SystemError(_PORT_CLOSED) }
+	if self.eof { return EOF_OBJECT }
 	res := ""
 	for {
-		b, err := self.ReadChar()
-		if err == os.EOF { 
-			self.eof = true
+		b, _, err := self.r.ReadRune()
+		if err != nil {
+			self.eof = err == os.EOF
+			if !self.eof { SystemError(err) }
 			break
-		}
-		if err != nil { return "", err }
+		}	
 		if b == '\n' { break }
 		res += string(b)
 	}
-	return res, nil
+	return res
 }
 
-func (self *InputPort) Close() os.Error {
-	if self.r == nil { return portClosed }
+func (self *InputPort) Close() {
+	if self.r == nil { SystemError(_PORT_CLOSED) }
 	self.r = nil
 	if c, ok := self.ref.(io.Closer); ok {
-		return c.Close()
+		err := c.Close()
+		if err != nil { SystemError(err) }
 	}
-	return nil
 }
 
 func (self *InputPort) Eof() bool {
@@ -363,39 +371,40 @@ type OutputPort struct {
 }
 
 func NewOutput(w io.Writer) *OutputPort {
+	if p, ok := w.(*OutputPort); ok { return p }
 	return &OutputPort { w, bufio.NewWriter(w) }
 }
 
 func (self *OutputPort) Write(bs []byte) (int, os.Error) {
-	if self.w == nil { return 0, portClosed }
+	if self.w == nil { return 0, _PORT_CLOSED }
 	return self.w.Write(bs)
 }
 
-func (self *OutputPort) WriteString(str string) os.Error {
-	if self.w == nil { return portClosed }
+func (self *OutputPort) WriteString(str string) {
+	if self.w == nil { SystemError(_PORT_CLOSED) }
 	_, err := self.w.WriteString(str)
-	return err
+	if err != nil { SystemError(err) }
 }
 
-func (self *OutputPort) WriteByte(b byte) os.Error {
-	if self.w == nil { return portClosed }
+func (self *OutputPort) WriteByte(b byte) {
 	bs := []byte { b }
-	_, err := self.w.Write(bs)
-	return err
+	_, err := self.Write(bs)
+	if err != nil { SystemError(err) }
 }
 
-func (self *OutputPort) Flush() os.Error {
-	if self.w == nil { return portClosed }
-	return self.w.Flush()
+func (self *OutputPort) Flush() {
+	if self.w == nil { SystemError(_PORT_CLOSED) }
+	err := self.w.Flush()
+	if err != nil { SystemError(err) }	
 }
 
-func (self *OutputPort) Close() os.Error {
-	if self.w == nil { return portClosed }
+func (self *OutputPort) Close() {
+	if self.w == nil { SystemError(_PORT_CLOSED) }
 	self.w = nil
 	if c, ok := self.ref.(io.Closer); ok {
-		return c.Close()
+		err := c.Close()
+		if err != nil { SystemError(err) }
 	}
-	return nil
 }
 
 /*

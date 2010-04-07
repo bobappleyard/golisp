@@ -1,4 +1,4 @@
-; primitive type predicates
+;; primitive type predicates
 (define (is? x t)        (== (type-of x) t))
 (define (boolean? x)     (is? x 'boolean))
 (define (fixnum? x)      (is? x 'fixnum))
@@ -13,12 +13,13 @@
 (define (function? x)    (is? x 'function))
 (define (input-port? x)  (is? x 'input-port))
 (define (output-port? x) (is? x 'output-port))
+(define (channel? x)     (is? x 'channel))
 
-; broader type predicates
+;; broader type predicates
 (define (atom? x) (not (sequence? x)))
 (define (sequence? x) (if (vector? x) #t (pair? x)))
 
-; basic stuff
+;; basic stuff
 (define (id x)                          x)
 (define (object->boolean x)             (if x #t #f))
 (define (not x)                         (if x #f #t))
@@ -38,7 +39,7 @@
 (define ((guard->pred g) x)             (object->boolean (g x)))
 (define (error msg)                     (throw 'error msg))
 
-; strings
+;; strings
 (define string->list (compose vector->list string->vector))
 (define list->string (compose vector->string list->vector))
 
@@ -51,7 +52,7 @@
 (define (string-append . ss)
   (string-join ss ""))
 
-; list accessors
+;; list accessors
 (define   caar (compose car car))
 (define   cadr (compose car cdr))
 (define   cdar (compose cdr car))
@@ -81,7 +82,7 @@
 (define cdddar (compose cdr cddar))
 (define cddddr (compose cdr cdddr))
 
-; list traversal
+;; list traversal
 (define (fold f acc l)
   (if (null? l)
     acc
@@ -99,7 +100,7 @@
 (define (length l)
   (fold (lambda (_ acc) (1+ acc)) 0 l))
 
-; list munging
+;; list munging
 (define (reverse l)
   (fold cons () l))
   
@@ -117,7 +118,7 @@
       (set! ls (reverse ls))
       (fold (lambda (l acc) (fold cons acc (reverse l))) (car ls) (cdr ls)))))
 
-; backquote magic
+;; backquote magic
 (define-macro (quasiquote tmplt)
   (if (pair? tmplt)
     (fold (lambda (cell acc)
@@ -134,20 +135,30 @@
           (reverse tmplt))
     (list 'quote tmplt)))
 
-; aux macros
+;; aux macros
 (define-macro (define-gensyms . ss)
   `(begin ,@(map (lambda (s) `(define ,s (gensym))) ss)))
 
 (define-macro (when t . b)
   `(if ,t (begin ,@b) #v))
-  
+
 (define-macro (unless t . b)
   `(when (not ,t) ,@b))
 
 (define-macro (define* . vs)
   `(begin ,@(map (lambda (v) `(define ,v #v)) vs)))
 
-; main macro set
+(define-macro (optional args . vs)
+  (define-gensyms tmp)
+  `(begin ,@(map (lambda (v)
+                   `(define ,v (if (null? ,args)
+                                 #f
+                                 (let ([,tmp (car ,args)])
+                                   (set! ,args (cdr ,args))
+                                   ,tmp))))
+                 vs)))
+
+;; main macro set
 (define-macro (let bs . b)
   (define (named-let name bs b)
     `(letrec ([,name (lambda ,(map car bs) ,@b)])
@@ -210,7 +221,7 @@
                           (caddr var)))
                       vars))))))
 
-; fix some of the primitive functions
+;; fix some of the primitive functions
 (define-macro (define-wrapped head . body)
   (if (pair? head)
     `(define-wrapped ,(car head) (lambda ,(cdr head) ,@body))
@@ -220,39 +231,48 @@
   (set! arglst (reverse arglst))
   (apply f (fold cons (car arglst) (cdr arglst))))
   
-(define-wrapped (eval expr . env)
-  (eval expr (if (null? env)
-               (root-environment)
-               (car env))))
+(define-wrapped (eval expr . rest)
+  (optional rest env)
+  (eval expr (if env env (root-environment))))
 
-(define-wrapped (load file . env)
-  (load file (if (null? env)
-               (root-environment)
-               (car env))))
+(define-wrapped (load file . rest)
+  (optional rest env)
+  (load file (if env env (root-environment))))
 
-; more list stuff
-(define proper-list? #f)
-(define improper-list? #f)
+(define-wrapped (write x . rest)
+  (optional rest pt)
+  (write x (if pt pt (standard-output))))
+
+(define-wrapped (display x . rest)
+  (optional rest pt)
+  (display x (if pt pt (standard-output))))
+
+(define-wrapped (read x . rest)
+  (optional rest pt)
+  (read x (if pt pt (standard-input))))
+
+(define (newline . pt)
+  (apply display "\n" pt))
+
+;; more list stuff
+(define* proper-list? improper-list?)
 (let ()
   (define (list-type x)
     (cond 
       [(null? x) 'proper]
       [(pair? x) (list-type (cdr x))]
       [else 'improper]))
-      
   (define (proper? x)
     (== (list-type x) 'proper))
-    
   (define (improper? x)
     (and (pair? x)
          (== (list-type x) 'improper)))
-         
   (set! proper-list? proper?)
   (set! improper-list? improper?))
 
 (define list? proper-list?)
 
-; selection
+;; selection
 (define (list-tail ls idx)
   (do ([cur ls (cdr cur)] 
        [x idx (1- x)])
@@ -264,7 +284,7 @@
 (define (list-ref ls idx)
   (car (list-tail ls idx)))
 
-; searching
+;; searching
 (define (member k ls)
   (do ([cur ls (cdr cur)])
     [(= k (car cur)) cur]))
@@ -273,7 +293,7 @@
   (do ([cur ls (cdr cur)])
     [(= k (caar cur)) (car cur)]))
 
-; equality
+;; equality
 (define (list=? a b)
   (and (list? a) 
        (list? b)
@@ -284,6 +304,17 @@
              #t
              (zip a b))))
 
+(define (vector=? a b)
+  (define l (vector-length a))
+  (and (vector? a)
+       (vector? b)
+       (== l (vector-length b))
+       (let lp ([i 0])
+        (cond
+          [(== i l) #t]
+          [(not (= (vector-ref a i) (vector-ref b i))) #f]
+          [else (lp (1+ i))]))))
+
 (define (= a b)
   ((cond 
      [(list? a) list=?]
@@ -291,7 +322,7 @@
      [else ==])
    a b))
 
-; numbers
+;; numbers
 (define* + - * /)
 (let ()
   (define ((num-op fix flo) a b)
@@ -303,7 +334,7 @@
   (set! * (num-op fixnum-mul flonum-mul))
   (set! / (num-op fixnum-div flonum-div)))
 
-; control
+;; control
 (define (dynamic-wind before thk after)
   (define done #f)
   (before)
@@ -314,4 +345,10 @@
   (define msg (gensym))
   (catch (lambda () (f (lambda (x) (throw msg x))))
          (lambda (k m) (if (== k msg) m (throw k m)))))
+
+(define (<- ch . v)
+  (cond
+    [(null? v) (channel-receive ch)]
+    [(null? (cdr v)) (channel-send ch (car v))]
+    [else (error "<-: wrong number of arguments")]))
 

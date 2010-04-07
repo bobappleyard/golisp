@@ -3,13 +3,11 @@ package main
 import (
 	"os"
 	"./lisp"
-	"./errors"
 )
 
 func main() {
-	lisp.PreludePath = "./prelude.golisp"
-	i, err := lisp.New()
-	errors.Fatal(err)
+	//~ lisp.PreludePath = "./prelude.golisp"
+	i := lisp.New()
 	i.Repl(os.Stdin, os.Stdout)
 }
 
