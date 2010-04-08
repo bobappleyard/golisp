@@ -3,8 +3,9 @@ package lisp
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
-
+	
 	"github.com/bobappleyard/bwl/errors"
 )
 
@@ -12,7 +13,8 @@ import (
 	Interpreter related stuff
 */
 
-var PreludePath = ""
+var PreludePath = os.Getenv("GOROOT") + 
+	"/src/pkg/github.com/bobappleyard/golisp/prelude.golisp"
 
 type Scope struct {
 	env Environment
