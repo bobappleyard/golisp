@@ -7,7 +7,7 @@ Compiling GoLisp
 ----------------
 
 $ goinstall github.com/bobappleyard/golisp/lisp
-$ cd $GOROOT/src/pkg/github.com/bobappleyard/golisp/lisp
+$ cd $GOROOT/src/pkg/github.com/bobappleyard/golisp
 $ 6g gli.go
 $ 6l -o gli gl.6
 $ ./gli
