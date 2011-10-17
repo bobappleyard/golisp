@@ -386,7 +386,7 @@ func stringSplit(str, sep interface{}) interface{} {
 	if !ok { TypeError("string", str) }
 	b, ok := sep.(string)
 	if !ok { TypeError("string", sep) }
-	ss := strings.Split(s, b, 0)
+	ss := strings.Split(s, b)
 	res := EMPTY_LIST
 	for i := len(ss) - 1; i >= 0; i-- {
 		res = Cons(ss[i], res)
