@@ -196,7 +196,9 @@ func startProc(path, args interface{}) interface{} {
 	if err != nil { SystemError(err) }
 	outr, outw, err := os.Pipe()
 	if err != nil { SystemError(err) }
-	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
+	proc := &os.ProcAttr { "", os.Envs, []*os.File { inr, outw, os.Stderr }, nil }
+	_, err = os.StartProcess(p, argv, proc)
+//	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
 	if err != nil { SystemError(err) }
 	return Cons(NewOutput(inw), NewInput(outr))
 }
@@ -512,7 +514,7 @@ func openFile(path, mode interface{}) interface{} {
 	wrap := func(x interface{}) interface{} { return NewOutput(x.(io.Writer)) }
 	filemode, perms := 0, 0
 	switch string(m) {
-		case "create": filemode, perms = os.O_CREAT, 0644
+		case "create": filemode, perms = os.O_CREATE, 0644
 		case "read": filemode, wrap = os.O_RDONLY, func(x interface{}) interface{} {
 			return NewInput(x.(io.Reader))
 		}
@@ -520,7 +522,7 @@ func openFile(path, mode interface{}) interface{} {
 		case "append": filemode = os.O_APPEND
 		default: Error(fmt.Sprintf("wrong access token: %s", m))
 	}
-	f, err := os.Open(p, filemode, perms)
+	f, err := os.OpenFile(p, filemode, uint32(perms))
 	if err != nil { SystemError(err) }
 	return wrap(f)
 }
