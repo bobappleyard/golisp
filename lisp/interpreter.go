@@ -13,8 +13,11 @@ import (
 	Interpreter related stuff
 */
 
-var PreludePath = os.Getenv("GOROOT") + 
-	"/src/pkg/github.com/bobappleyard/golisp/prelude.golisp"
+var PreludeFile = "prelude.golisp"
+var PreludePaths = []string{ "./" + PreludeFile,
+	os.Getenv("GOROOT") + "/src/pkg/github.com/bobappleyard/golisp/" + PreludeFile,
+	os.Getenv("GOPATH") + "/src/github.com/bobappleyard/golisp/" + PreludeFile }
+//os.Getenv("HOME")+"/.golisp/"+PreludeFile ?
 
 type Scope struct {
 	env Environment
@@ -40,6 +43,18 @@ func NewScope(parent *Scope) *Scope {
 	return &Scope { make(Environment), parent }
 }
 
+// patchy workaround...
+func tryLoad(paths []string) string {
+	for _,v := range paths {
+// nope! openFile still panics "unconditionally"
+//		if !Failed(openFile(v, Symbol("read"))) {
+		if _,err := os.Open(v); err == nil {
+		return v
+		}
+	}
+	return ""
+}
+
 // Create a Scope that can be used as an interpreter.
 func New() *Scope {
 	res := NewScope(nil)
@@ -47,8 +62,10 @@ func New() *Scope {
 	res.Bind(WrapPrimitives(map[string] interface{} {
 		"root-environment": func() interface{} { return res },
 	}))
-	if PreludePath != "" {
+	if PreludePath := tryLoad(PreludePaths); PreludePath != "" {
 		res.Load(PreludePath)
+	} else {
+		panic("could not find "+PreludeFile+" file")
 	}
 	return res
 }
