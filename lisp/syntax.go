@@ -93,7 +93,7 @@ var syntax = func() *peg.ExtensibleExpr {
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} { 
-			res, err := strconv.Atof(x.(string))
+			res, err := strconv.Atof32(x.(string))
 			if err != nil { SystemError(err) }
 			return res
 		}),

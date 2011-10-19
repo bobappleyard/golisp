@@ -196,7 +196,9 @@ func startProc(path, args interface{}) interface{} {
 	if err != nil { SystemError(err) }
 	outr, outw, err := os.Pipe()
 	if err != nil { SystemError(err) }
-	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
+	proc := &os.ProcAttr { "", os.Envs, []*os.File { inr, outw, os.Stderr }, nil }
+	_, err = os.StartProcess(p, argv, proc)
+//	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
 	if err != nil { SystemError(err) }
 	return Cons(NewOutput(inw), NewInput(outr))
 }
@@ -210,7 +212,7 @@ func typeOf(x interface{}) interface{} {
 	switch x.(type) {
 		case bool: s = "boolean"
 		case int: s = "fixnum"
-		case float: s = "flonum"
+		case float32: s = "flonum"
 		case string: s = "string"
 		case Symbol: s = "symbol"
 		case *Pair: s = "pair"
@@ -288,8 +290,8 @@ func gensym() interface{} {
 
 func fixToFlo(_x interface{}) interface{} {
 	switch x := _x.(type) {
-		case int: return float(x)
-		case float: return x
+		case int: return float32(x)
+		case float32: return x
 	}
 	TypeError("number", _x) 
 	panic("unreachable")
@@ -319,7 +321,7 @@ func fixnumDiv(_a, _b interface{}) interface{} {
 	return fixnumFunc(_a, _b, func(a, b int) interface{} {
 		if b == 0 { Error("divide by zero") }
 		if a % b == 0 { return a / b }
-		return float(a) / float(b)
+		return float32(a) / float32(b)
 	})
 }
 
@@ -348,28 +350,28 @@ func fixnumModulo(_a, _b interface{}) interface{} {
 	})
 }
 
-func flonumFunc(_a, _b interface{}, f func(a, b float) interface{}) interface{} {
-	a, ok := _a.(float)
+func flonumFunc(_a, _b interface{}, f func(a, b float32) interface{}) interface{} {
+	a, ok := _a.(float32)
 	if !ok { TypeError("flonum", _a) }
-	b, ok := _b.(float)
+	b, ok := _b.(float32)
 	if !ok { TypeError("flonum", _b) }
 	return f(a, b)
 }
 
 func flonumAdd(_a, _b interface{}) interface{} {
-	return flonumFunc(_a, _b, func(a, b float) interface{} { return a + b })
+	return flonumFunc(_a, _b, func(a, b float32) interface{} { return a + b })
 }
 
 func flonumSub(_a, _b interface{}) interface{} {
-	return flonumFunc(_a, _b, func(a, b float) interface{} { return a - b })
+	return flonumFunc(_a, _b, func(a, b float32) interface{} { return a - b })
 }
 
 func flonumMul(_a, _b interface{}) interface{} {
-	return flonumFunc(_a, _b, func(a, b float) interface{} { return a * b })
+	return flonumFunc(_a, _b, func(a, b float32) interface{} { return a * b })
 }
 
 func flonumDiv(_a, _b interface{}) interface{} {
-	return flonumFunc(_a, _b, func(a, b float) interface{} {
+	return flonumFunc(_a, _b, func(a, b float32) interface{} {
 		if b == 0 { Error("divide by zero") }
 		return a / b
 	})
@@ -384,7 +386,7 @@ func stringSplit(str, sep interface{}) interface{} {
 	if !ok { TypeError("string", str) }
 	b, ok := sep.(string)
 	if !ok { TypeError("string", sep) }
-	ss := strings.Split(s, b, 0)
+	ss := strings.Split(s, b)
 	res := EMPTY_LIST
 	for i := len(ss) - 1; i >= 0; i-- {
 		res = Cons(ss[i], res)
@@ -512,7 +514,7 @@ func openFile(path, mode interface{}) interface{} {
 	wrap := func(x interface{}) interface{} { return NewOutput(x.(io.Writer)) }
 	filemode, perms := 0, 0
 	switch string(m) {
-		case "create": filemode, perms = os.O_CREAT, 0644
+		case "create": filemode, perms = os.O_CREATE, 0644
 		case "read": filemode, wrap = os.O_RDONLY, func(x interface{}) interface{} {
 			return NewInput(x.(io.Reader))
 		}
@@ -520,7 +522,7 @@ func openFile(path, mode interface{}) interface{} {
 		case "append": filemode = os.O_APPEND
 		default: Error(fmt.Sprintf("wrong access token: %s", m))
 	}
-	f, err := os.Open(p, filemode, perms)
+	f, err := os.OpenFile(p, filemode, uint32(perms))
 	if err != nil { SystemError(err) }
 	return wrap(f)
 }

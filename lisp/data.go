@@ -290,7 +290,7 @@ func (self Vector) GoString() string {
 */
 var (
 	EOF_OBJECT = NewConstant("#eof-object")
-	_PORT_CLOSED = os.ErrorString("port closed")
+	_PORT_CLOSED = os.NewError("port closed")
 )
 
 type InputPort struct {
