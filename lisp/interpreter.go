@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bobappleyard/bwl/errors"
@@ -14,11 +15,21 @@ import (
 */
 
 var PreludeFile = "prelude.golisp"
-var PreludePaths = []string{"./" + PreludeFile,
-	os.Getenv("GOROOT") + "/src/pkg/github.com/bobappleyard/golisp/" + PreludeFile,
-	os.Getenv("GOPATH") + "/src/github.com/bobappleyard/golisp/" + PreludeFile}
+var PreludePaths = []string{}
 
 //os.Getenv("HOME")+"/.golisp/"+PreludeFile ?
+
+func init() {
+	if wd, err := os.Getwd(); err == nil {
+		PreludePaths = append(PreludePaths, filepath.Join(wd, PreludeFile))
+	}
+	ps := strings.Split(os.Getenv("GOPATH"), string(filepath.ListSeparator))
+	for _, p := range ps {
+		PreludePaths = append(PreludePaths, filepath.Join(p, PreludeFile))
+	}
+	f := filepath.Join(os.Getenv("HOME"), ".golisp", PreludeFile)
+	PreludePaths = append(PreludePaths, f)
+}
 
 type Scope struct {
 	env    Environment
