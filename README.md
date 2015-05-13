@@ -6,11 +6,9 @@ Hello everyone! Here's a very, very primitive Lisp implementation in Go.
 Compiling GoLisp
 ----------------
 
-$ goinstall github.com/bobappleyard/golisp/lisp
-$ cd $GOROOT/src/pkg/github.com/bobappleyard/golisp
-$ 6g gli.go
-$ 6l -o gli gl.6
-$ ./gli
+```
+$ go get github.com/bobappleyard/golisp
+$ golisp
+```
 
 Gives you a REPL.
-
