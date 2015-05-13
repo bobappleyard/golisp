@@ -1,10 +1,10 @@
 package lisp
 
 import (
-	"big"
 	"bytes"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -226,7 +226,7 @@ func startProc(path, args interface{}) interface{} {
 	if err != nil {
 		SystemError(err)
 	}
-	proc := &os.ProcAttr{"", os.Envs, []*os.File{inr, outw, os.Stderr}, nil}
+	proc := &os.ProcAttr{"", os.Environ(), []*os.File{inr, outw, os.Stderr}, nil}
 	_, err = os.StartProcess(p, argv, proc)
 	//	_, err = os.ForkExec(p, argv, os.Envs, "", []*os.File { inr, outw, os.Stderr })
 	if err != nil {
@@ -617,9 +617,9 @@ func vecToStr(vec interface{}) interface{} {
 	if !ok {
 		TypeError("vector", vec)
 	}
-	res := make([]int, len(cs))
+	res := make([]rune, len(cs))
 	for i, c := range cs {
-		r, ok := c.(int)
+		r, ok := c.(rune)
 		if !ok {
 			TypeError("vector of fixnums", vec)
 		}
@@ -657,7 +657,7 @@ func openFile(path, mode interface{}) interface{} {
 	default:
 		Error(fmt.Sprintf("wrong access token: %s", m))
 	}
-	f, err := os.OpenFile(p, filemode, uint32(perms))
+	f, err := os.OpenFile(p, filemode, os.FileMode(perms))
 	if err != nil {
 		SystemError(err)
 	}

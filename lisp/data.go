@@ -2,9 +2,9 @@ package lisp
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"unsafe"
 )
 
@@ -135,6 +135,10 @@ type errorStruct struct {
 	msg  interface{}
 }
 
+func (self *errorStruct) Error() string {
+	return self.GoString()
+}
+
 func (self *errorStruct) String() string {
 	return self.GoString()
 }
@@ -148,12 +152,12 @@ func Failed(x interface{}) bool {
 	return failed
 }
 
-func WrapError(err interface{}) os.Error {
+func WrapError(err interface{}) error {
 	switch e := err.(type) {
 	case *errorStruct:
 		return e
-	case os.Error:
-		return &errorStruct{Symbol("system-error"), e.String()}
+	case error:
+		return &errorStruct{Symbol("system-error"), e.Error()}
 	default:
 		TypeError("error", err)
 	}
@@ -178,8 +182,8 @@ func ArgumentError(f, args interface{}) {
 	Throw(Symbol("argument-error"), msg)
 }
 
-func SystemError(err os.Error) {
-	Throw(Symbol("system-error"), err.String())
+func SystemError(err error) {
+	Throw(Symbol("system-error"), err.Error())
 }
 
 func SyntaxError(err string) {
@@ -305,7 +309,7 @@ func (self Vector) GoString() string {
 */
 var (
 	EOF_OBJECT   = NewConstant("#eof-object")
-	_PORT_CLOSED = os.NewError("port closed")
+	_PORT_CLOSED = errors.New("port closed")
 )
 
 type InputPort struct {
@@ -321,15 +325,15 @@ func NewInput(r io.Reader) *InputPort {
 	return &InputPort{false, r, bufio.NewReader(r)}
 }
 
-func (self *InputPort) Read(bs []byte) (int, os.Error) {
+func (self *InputPort) Read(bs []byte) (int, error) {
 	if self.r == nil {
 		return 0, _PORT_CLOSED
 	}
 	if self.eof {
-		return 0, os.EOF
+		return 0, io.EOF
 	}
 	l, err := self.r.Read(bs)
-	self.eof = err == os.EOF
+	self.eof = err == io.EOF
 	return l, err
 }
 
@@ -342,7 +346,7 @@ func (self *InputPort) ReadChar() interface{} {
 	}
 	res, _, err := self.r.ReadRune()
 	if err != nil {
-		self.eof = err == os.EOF
+		self.eof = err == io.EOF
 		if !self.eof {
 			SystemError(err)
 		}
@@ -360,7 +364,7 @@ func (self *InputPort) ReadByte() interface{} {
 	bs := []byte{0}
 	_, err := self.Read(bs)
 	if err != nil {
-		self.eof = err == os.EOF
+		self.eof = err == io.EOF
 		if !self.eof {
 			SystemError(err)
 		}
@@ -379,7 +383,7 @@ func (self *InputPort) ReadLine() interface{} {
 	for {
 		b, _, err := self.r.ReadRune()
 		if err != nil {
-			self.eof = err == os.EOF
+			self.eof = err == io.EOF
 			if !self.eof {
 				SystemError(err)
 			}
@@ -422,7 +426,7 @@ func NewOutput(w io.Writer) *OutputPort {
 	return &OutputPort{w, bufio.NewWriter(w)}
 }
 
-func (self *OutputPort) Write(bs []byte) (int, os.Error) {
+func (self *OutputPort) Write(bs []byte) (int, error) {
 	if self.w == nil {
 		return 0, _PORT_CLOSED
 	}
@@ -500,6 +504,5 @@ func (self *Custom) String() string {
 }
 
 func (self *Custom) GoString() string {
-	_, addr := unsafe.Reflect(self)
-	return fmt.Sprintf("#<%s: %x>", self.name, uintptr(addr))
+	return fmt.Sprintf("#<%s: %x>", self.name, unsafe.Pointer(self))
 }

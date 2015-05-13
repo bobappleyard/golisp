@@ -1,9 +1,9 @@
 package lisp
 
 import (
-	"big"
 	"fmt"
 	"io"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -29,20 +29,20 @@ const (
 )
 
 var lex = lexer.RegexSet{
-	int(_DOT):     "\\.",
-	int(_LSTART):  "\\(",
-	int(_LEND):    "\\)",
-	int(_LSTART2): "\\[",
-	int(_LEND2):   "\\]",
-	int(_VSTART):  "#\\(",
-	int(_INT):     "-?\\d+",
-	int(_FLOAT):   "-?\\d+(\\.\\d+)?",
-	int(_STR):     "\"([^\"]|\\.)*\"",
-	int(_COMMENT): ";[^\n]*",
-	int(_WS):      "\\s+",
-	int(_QUOTE):   "'|`|,|,@",
-	int(_SYMBOL):  "[^#\\(\\)\"\n\r\t\\[\\]'`,@ ]+",
-	int(_HASH):    "#.",
+	rune(_DOT):     "\\.",
+	rune(_LSTART):  "\\(",
+	rune(_LEND):    "\\)",
+	rune(_LSTART2): "\\[",
+	rune(_LEND2):   "\\]",
+	rune(_VSTART):  "#\\(",
+	rune(_INT):     "-?\\d+",
+	rune(_FLOAT):   "-?\\d+(\\.\\d+)?",
+	rune(_STR):     "\"([^\"]|\\.)*\"",
+	rune(_COMMENT): ";[^\n]*",
+	rune(_WS):      "\\s+",
+	rune(_QUOTE):   "'|`|,|,@",
+	rune(_SYMBOL):  "[^#\\(\\)\"\n\r\t\\[\\]'`,@ ]+",
+	rune(_HASH):    "#.",
 }
 
 func listExpr(start, rec, end peg.Expr) peg.Expr {
@@ -99,7 +99,7 @@ var syntax = func() *peg.ExtensibleExpr {
 			return res
 		}),
 		peg.Bind(_FLOAT, func(x interface{}) interface{} {
-			res, err := strconv.Atof32(x.(string))
+			res, err := strconv.ParseFloat(x.(string), 64)
 			if err != nil {
 				SystemError(err)
 			}
