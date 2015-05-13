@@ -17,8 +17,6 @@ import (
 var PreludeFile = "prelude.golisp"
 var PreludePaths = []string{}
 
-//os.Getenv("HOME")+"/.golisp/"+PreludeFile ?
-
 func init() {
 	if wd, err := os.Getwd(); err == nil {
 		PreludePaths = append(PreludePaths, filepath.Join(wd, PreludeFile))
