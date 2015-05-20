@@ -23,7 +23,7 @@ func init() {
 	}
 	ps := strings.Split(os.Getenv("GOPATH"), string(filepath.ListSeparator))
 	for _, p := range ps {
-		PreludePaths = append(PreludePaths, filepath.Join(p, PreludeFile))
+		PreludePaths = append(PreludePaths, filepath.Join(p, "src/github.com/bobappleyard/golisp", PreludeFile))
 	}
 	f := filepath.Join(os.Getenv("HOME"), ".golisp", PreludeFile)
 	PreludePaths = append(PreludePaths, f)
