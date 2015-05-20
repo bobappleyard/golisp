@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -23,10 +24,12 @@ func init() {
 	}
 	ps := strings.Split(os.Getenv("GOPATH"), string(filepath.ListSeparator))
 	for _, p := range ps {
-		PreludePaths = append(PreludePaths, filepath.Join(p, PreludeFile))
+		PreludePaths = append(PreludePaths, filepath.Join(p, "src/github.com/bobappleyard/golisp", PreludeFile))
 	}
-	f := filepath.Join(os.Getenv("HOME"), ".golisp", PreludeFile)
-	PreludePaths = append(PreludePaths, f)
+	if u, err := user.Current(); err == nil {
+		f := filepath.Join(u.HomeDir, ".golisp", PreludeFile)
+		PreludePaths = append(PreludePaths, f)
+	}
 }
 
 type Scope struct {
